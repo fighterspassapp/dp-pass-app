@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { supabase } from './supabase'
+import './App.css'
 
 type UserRow = {
   name: string
@@ -29,84 +30,82 @@ export default function App() {
 
     setLoading(false)
 
-    if (error) {
-      console.error(error)
-      setError(`Database error: ${error.message}`)
-      return
-    }
-
-    if (!data) {
-      setError('Email not found in system')
-      return
-    }
+    if (error) return setError(`Database error: ${error.message}`)
+    if (!data) return setError('Email not found in system')
 
     setUser(data as UserRow)
   }
 
-  const handleSignOut = () => {
+  const signOut = () => {
     setUser(null)
     setEmail('')
     setError('')
   }
 
-  if (user) {
-    return (
-      <div style={{ padding: 40, fontFamily: 'system-ui, Arial' }}>
-        <h1 style={{ marginBottom: 8 }}>🎫 Pass Page</h1>
-
-        <div
-          style={{
-            marginTop: 16,
-            padding: 16,
-            border: '1px solid #ddd',
-            borderRadius: 10,
-            maxWidth: 420,
-          }}
-        >
-          <p style={{ margin: '6px 0' }}>
-            <strong>Name:</strong> {user.name}
-          </p>
-          <p style={{ margin: '6px 0' }}>
-            <strong>Email:</strong> {user.email}
-          </p>
-          <p style={{ margin: '6px 0' }}>
-            <strong>Available passes:</strong> {user.passes}
-          </p>
-        </div>
-
-        <button
-          onClick={handleSignOut}
-          style={{ marginTop: 16, padding: '8px 12px', cursor: 'pointer' }}
-        >
-          Sign out
-        </button>
-      </div>
-    )
-  }
-
   return (
-    <div style={{ padding: 40, fontFamily: 'system-ui, Arial' }}>
-      <h1>Enter Email</h1>
+    <div className="page">
+      {/* HEADER */}
+      <div className="headerBar">
+        <img src="/fightingLogo.png" className="headerLogo" alt="Fighting Fourth" />
+        <div className="headerTitle">Fighters Pass Tracker</div>
+      </div>
 
-      <form onSubmit={handleSubmit}>
-        <input
-          type="email"
-          placeholder="email@example.com"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          required
-          style={{ padding: 10, width: 320, maxWidth: '90%' }}
-        />
+      {/* MAIN */}
+      <div className="mainArea">
+        {!user ? (
+          <div className="loginPanel">
+            <h2 className="loginTitle">Enter your email</h2>
+            <p className="loginSub">
+              If your email is in the system, you’ll see your current pass balance.
+            </p>
 
-        <br />
-        <br />
+            <form className="login" onSubmit={handleSubmit}>
+              <input
+                className="input"
+                type="email"
+                placeholder="email@example.com"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                required
+                autoFocus
+              />
 
-        <button type="submit" disabled={loading} style={{ padding: '8px 12px' }}>
-          {loading ? 'Checking…' : 'Continue'}
-        </button>
-      </form>
+              <button className="btn btnGold" type="submit" disabled={loading}>
+                {loading ? 'Checking…' : 'Continue'}
+              </button>
 
-      {error && <p style={{ color: 'red', marginTop: 12 }}>{error}</p>}
+              {error && <div className="error">{error}</div>}
+            </form>
+          </div>
+        ) : (
+          <div className="card">
+            <div className="cardHeader">
+              <img src="/fightingLogo.png" className="logo" alt="Fighting Fourth" />
+              <div className="titleBlock">
+                <h1 className="name">{user.name}</h1>
+                <p className="email">{user.email}</p>
+              </div>
+            </div>
+
+            <div className="hr" />
+
+            <div className="statsRow">
+              <div className="label">Passes Left</div>
+              <div className="passes">{user.passes}</div>
+            </div>
+
+            <div className="actions">
+              <button className="btn btnGold" type="button">
+                Request Pass
+              </button>
+
+              <button className="btn" type="button" onClick={signOut}>
+                Sign out
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   )
 }
