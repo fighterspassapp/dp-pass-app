@@ -42,7 +42,7 @@ export default function App() {
   const [showTransferUI, setShowTransferUI] = useState(false)
   const [transferAmount, setTransferAmount] = useState(1)
   const [transferLoading, setTransferLoading] = useState(false)
-  const [transferMsg, setTransferMsg] = useState('')
+
 
   const [transferReqs, setTransferReqs] = useState<PassTransferRequestRow[]>([])
   const [transferReqsLoading, setTransferReqsLoading] = useState(false)
@@ -129,7 +129,7 @@ export default function App() {
   const submitTransferRequest = async () => {
     if (!user) return
 
-    setTransferMsg('')
+
     setTransferLoading(true)
 
     const max = Number(user.passes ?? 0)
@@ -137,13 +137,13 @@ export default function App() {
 
   if (!Number.isInteger(amt) || amt < 1) {
     setTransferLoading(false)
-    setTransferMsg('Please choose a valid number of passes.')
+
     return
   }
 
   if (amt > max) {
     setTransferLoading(false)
-    setTransferMsg('You cannot request more passes than you currently have.')
+
     return
   }
 
@@ -157,7 +157,7 @@ export default function App() {
 
   if (error) {
     console.error(error)
-    setTransferMsg(`Request failed: ${error.message}`)
+
     return
   }
 
@@ -850,7 +850,6 @@ export default function App() {
                 type="button"
                 disabled={!!pendingTransfer}
                 onClick={() => {
-                  setTransferMsg('')
                   setTransferAmount(1)
                   setShowTransferUI((v) => !v)
                 }}
