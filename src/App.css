@@ -158,6 +158,15 @@
   gap: 16px;
 }
 
+.adminSearchInput {
+  width: 480px !important;
+  min-width: 480px !important;
+  max-width: 480px !important;
+  flex: 0 0 480px !important;
+}
+
+
+
 .logo {
   width: 64px;
   height: 64px;

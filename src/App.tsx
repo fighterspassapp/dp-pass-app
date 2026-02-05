@@ -170,6 +170,9 @@ export default function App() {
   const [cdnaIncentiveReqsError, setCdnaIncentiveReqsError] = useState('')
   const [cdnaIncentiveActionId, setCdnaIncentiveActionId] = useState<number | null>(null)
 
+  const [adminUserSearch, setAdminUserSearch] = useState('')
+
+
 
   const loadCdnaTransferRequests = async () => {
     setCdnaTransferReqsError('')
@@ -1193,6 +1196,18 @@ setUsers(rows)
     )
   }
 
+  const normalizedAdminQuery = adminUserSearch.trim().toLowerCase()
+
+  const filteredUsers =
+    normalizedAdminQuery.length === 0
+      ? users
+      : users.filter((u) => {
+          const name = (u.name ?? '').toLowerCase()
+          const email = (u.email ?? '').toLowerCase()
+          return name.includes(normalizedAdminQuery) || email.includes(normalizedAdminQuery)
+        })
+
+
 
 
   return (
@@ -1398,24 +1413,28 @@ setUsers(rows)
                     <div className="adminSub">Adjust pass balances and click Save.</div>
                   </div>
 
+                  <input
+                    className="adminPassInput adminSearchInput"
+                    type="text"
+                    placeholder="Search name or email…"
+                    value={adminUserSearch}
+                    onChange={(e) => setAdminUserSearch(e.target.value)}
+                    style={{ width: 480, minWidth: 480 }}
+                  />
+
+
                   <button className="btn btnSmall" type="button" onClick={loadUsers} disabled={usersLoading}>
                     {usersLoading ? 'Refreshing…' : 'Refresh'}
                   </button>
                 </div>
 
-                {usersError && (
-                  <div className="error" style={{ marginTop: 10 }}>
-                    {usersError}
-                  </div>
-                )}
-
                 <div className="adminList">
                   {usersLoading ? (
                     <div className="adminEmpty">Loading users…</div>
-                  ) : users.length === 0 ? (
-                    <div className="adminEmpty">No users found.</div>
+                  ) : filteredUsers.length === 0 ? (
+                    <div className="adminEmpty">No matching users.</div>
                   ) : (
-                    users.map((u) => (
+                    filteredUsers.map((u) => (
                       <div className="adminRow" key={u.email}>
                         <div className="adminRowLeft">
                           <div className="adminRowName">{u.name}</div>
@@ -1453,8 +1472,9 @@ setUsers(rows)
                   )}
                 </div>
               </>
+          
 
-              ) : adminTab === 'probationStatus' ? (
+            ): adminTab === 'probationStatus' ? (
                 <>
                   <div className="adminTopRow">
                     <div>
@@ -1462,10 +1482,22 @@ setUsers(rows)
                       <div className="adminSub">Toggle probation on/off and click Save.</div>
                     </div>
 
+                    {/* SEARCH BAR */}
+                    <input
+                      className="adminPassInput adminSearchInput"
+                      type="text"
+                      placeholder="Search name or email…"
+                      value={adminUserSearch}
+                      onChange={(e) => setAdminUserSearch(e.target.value)}
+                      style={{ width: 480, minWidth: 480 }}
+                    />
+
+
                     <button className="btn btnSmall" type="button" onClick={loadUsers} disabled={usersLoading}>
                       {usersLoading ? 'Refreshing…' : 'Refresh'}
                     </button>
                   </div>
+
 
                   {usersError && (
                     <div className="error" style={{ marginTop: 10 }}>
@@ -1473,13 +1505,13 @@ setUsers(rows)
                     </div>
                   )}
 
-                  <div className="adminList">
+                   <div className="adminList">
                     {usersLoading ? (
                       <div className="adminEmpty">Loading users…</div>
-                    ) : users.length === 0 ? (
-                      <div className="adminEmpty">No users found.</div>
+                    ) : filteredUsers.length === 0 ? (
+                      <div className="adminEmpty">No matching users.</div>
                     ) : (
-                      users.map((u) => (
+                      filteredUsers.map((u) => (
                         <div className="adminRow" key={u.email}>
                           <div className="adminRowLeft">
                             <div className="adminRowName">{u.name}</div>
@@ -1658,10 +1690,23 @@ setUsers(rows)
                     <div className="adminSub">Adjust CDNA balances and click Save.</div>
                   </div>
 
+                  {/* SEARCH BAR */}
+                  <input
+                    className="adminPassInput adminSearchInput"
+                    type="text"
+                    placeholder="Search name or email…"
+                    value={adminUserSearch}
+                    onChange={(e) => setAdminUserSearch(e.target.value)}
+                    style={{ width: 480, minWidth: 480 }}
+                  />
+
+
+
                   <button className="btn btnSmall" type="button" onClick={loadUsers} disabled={usersLoading}>
                     {usersLoading ? 'Refreshing…' : 'Refresh'}
                   </button>
                 </div>
+
 
                 {usersError && (
                   <div className="error" style={{ marginTop: 10 }}>
@@ -1672,10 +1717,10 @@ setUsers(rows)
                 <div className="adminList">
                   {usersLoading ? (
                     <div className="adminEmpty">Loading users…</div>
-                  ) : users.length === 0 ? (
+                  ) : filteredUsers.length === 0 ? (
                     <div className="adminEmpty">No users found.</div>
                   ) : (
-                    users.map((u) => (
+                    filteredUsers.map((u) => (
                       <div className="adminRow" key={u.email}>
                         <div className="adminRowLeft">
                           <div className="adminRowName">{u.name}</div>
@@ -1845,7 +1890,8 @@ setUsers(rows)
                   )}
                 </div>
               </>
-            ) : null}
+            ) : null }
+          
           </section>
 
 
