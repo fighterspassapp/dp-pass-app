@@ -158,11 +158,51 @@
   gap: 16px;
 }
 
-.adminSearchInput {
-  width: 480px !important;
-  min-width: 480px !important;
-  max-width: 480px !important;
-  flex: 0 0 480px !important;
+/* Search bar: desktop long, mobile fluid */
+.adminPassInput.adminSearchInput {
+  width: 480px;
+  min-width: 480px;
+  max-width: 480px;
+  flex: 0 0 480px;
+}
+
+/* Mobile: stack + full width search + full width refresh */
+@media (max-width: 640px) {
+  .adminTopRow {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .adminPassInput.adminSearchInput {
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+    flex: 1 1 auto;
+  }
+
+  .adminTopRow .btn {
+    width: 100%;
+  }
+
+  .adminNav {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .adminTabBtn {
+    width: 100%;
+  }
+}
+
+
+
+/* Mobile: let everything stack + search becomes fluid */
+@media (max-width: 640px) {
+  .adminTopRow {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
 }
 
 

@@ -1419,7 +1419,6 @@ setUsers(rows)
                     placeholder="Search name or email…"
                     value={adminUserSearch}
                     onChange={(e) => setAdminUserSearch(e.target.value)}
-                    style={{ width: 480, minWidth: 480 }}
                   />
 
 
@@ -1489,7 +1488,6 @@ setUsers(rows)
                       placeholder="Search name or email…"
                       value={adminUserSearch}
                       onChange={(e) => setAdminUserSearch(e.target.value)}
-                      style={{ width: 480, minWidth: 480 }}
                     />
 
 
@@ -1697,7 +1695,6 @@ setUsers(rows)
                     placeholder="Search name or email…"
                     value={adminUserSearch}
                     onChange={(e) => setAdminUserSearch(e.target.value)}
-                    style={{ width: 480, minWidth: 480 }}
                   />
 
 
