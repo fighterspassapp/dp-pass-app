@@ -250,6 +250,80 @@
   color: rgba(0,0,0,0.85);
 }
 
+/* ===== BLUE METALLIC BUTTONS ===== */
+.btnBlueMetal {
+  background: linear-gradient(180deg, #3c6da4 0%, #2a527f 50%, #1c3757 100%);
+  color: #fff;
+  border: 1px solid rgba(255,255,255,0.15);
+
+  box-shadow:
+    inset 0 1px 2px rgba(255,255,255,0.25),
+    inset 0 -2px 3px rgba(0,0,0,0.35),
+    0 2px 6px rgba(0,0,0,0.5);
+
+  text-shadow: 0 1px 2px rgba(0,0,0,0.45);
+}
+
+.btnBlueMetal:hover {
+  filter: brightness(1.08);
+}
+
+.btnBlueMetal.active {
+  box-shadow:
+    inset 0 0 6px rgba(255,255,255,0.45),
+    0 0 10px rgba(60,109,164,0.8);
+}
+
+
+
+/* ===== PASS BUTTONS (SILVER METAL) ===== */
+.btnSilver {
+  background: linear-gradient(180deg, #b5b5b5 0%, #949494 50%, #7a7a7a 100%);
+  color: #111;
+  border: 1px solid rgba(255,255,255,0.2);
+
+  box-shadow:
+    inset 0 1px 2px rgba(255,255,255,0.25),
+    inset 0 -2px 3px rgba(0,0,0,0.3),
+    0 2px 6px rgba(0,0,0,0.45);
+}
+
+.btnSilver:hover {
+  filter: brightness(1.06);
+}
+
+.btnSilver.active {
+  box-shadow:
+    inset 0 0 6px rgba(255,255,255,0.45),
+    0 0 10px rgba(180,180,180,0.6);
+}
+
+
+
+/* ===== CDNA BUTTONS (METALLIC RED) ===== */
+.btnRedMetal {
+  background: linear-gradient(180deg, #8f2020 0%, #6e1717 50%, #541010 100%);
+  color: #fff;
+  border: 1px solid rgba(255,255,255,0.15);
+
+  box-shadow:
+    inset 0 1px 2px rgba(255,255,255,0.2),
+    inset 0 -2px 3px rgba(0,0,0,0.35),
+    0 2px 6px rgba(0,0,0,0.5);
+}
+
+.btnRedMetal:hover {
+  filter: brightness(1.07);
+}
+
+.btnRedMetal.active {
+  box-shadow:
+    inset 0 0 6px rgba(255,255,255,0.35),
+    0 0 10px rgba(143,32,32,0.8);
+}
+
+
+
 .btnGold:hover { filter: brightness(1.05); }
 
 /* ===== ADMIN UI ===== */

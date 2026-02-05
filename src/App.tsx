@@ -47,6 +47,8 @@ function makeSaltBytes() {
   return salt
 }
 
+const STORAGE_KEY = 'fighters_pass_tracker_email'
+
 /* ========= END PASSWORD HELPERS ========= */
 
 
@@ -67,6 +69,7 @@ type UserListRow = {
   email: string
   passes: number
   cdnas: number
+  on_probation?: boolean | null
 }
 
 
@@ -96,7 +99,30 @@ type AdminTab =
   | 'cdnaCount'
   | 'cdnaTransferRequests'
   | 'cdnaIncentiveRequests'
+  | 'probationStatus'
 
+
+function lastNameKey(fullName: string) {
+  const name = (fullName ?? '').trim().toLowerCase()
+  if (!name) return ''
+
+  // Supports "Last, First" format
+  if (name.includes(',')) {
+    return name.split(',')[0].trim()
+  }
+
+  // Default: take last token as last name ("First Middle Last")
+  const parts = name.split(/\s+/).filter(Boolean)
+  if (parts.length === 1) return parts[0]
+
+  // Handle common suffixes
+  const suffixes = new Set(['jr', 'jr.', 'sr', 'sr.', 'ii', 'iii', 'iv', 'v'])
+  let last = parts[parts.length - 1]
+  if (suffixes.has(last) && parts.length >= 2) {
+    last = parts[parts.length - 2]
+  }
+  return last
+}
 
 
 export default function App() {
@@ -582,6 +608,7 @@ export default function App() {
   const [confirmPassword, setConfirmPassword] = useState('')
   const [needsPasswordSetup, setNeedsPasswordSetup] = useState(false)
 
+  const [keepSignedIn, setKeepSignedIn] = useState(false)  
 
   // navigation state
   const [view, setView] = useState<View>('pass')
@@ -601,6 +628,9 @@ export default function App() {
   const [draftPasses, setDraftPasses] = useState<Record<string, string>>({})
 
   const [draftCdnas, setDraftCdnas] = useState<Record<string, string>>({})
+
+  const [draftProbation, setDraftProbation] = useState<Record<string, boolean>>({})
+
 
 
   const isAdmin = user?.is_admin === true
@@ -697,6 +727,13 @@ export default function App() {
           return
         }
 
+        if (keepSignedIn) {
+          localStorage.setItem(STORAGE_KEY, row.email)
+        } else {
+          localStorage.removeItem(STORAGE_KEY)
+        }
+
+
         // success login
         setNeedsPasswordSetup(false)
         setUser(row)
@@ -726,6 +763,10 @@ export default function App() {
     setDraftPasses({})
     setUsersError('')
     setSavingEmail(null)
+    localStorage.removeItem(STORAGE_KEY)
+    setDraftProbation({})
+
+
   }
 
   const enterAdmin = () => {
@@ -746,7 +787,7 @@ export default function App() {
 
     const { data, error } = await supabase
       .from('users')
-      .select('name, email, passes, cdnas')
+      .select('name, email, passes, cdnas, on_probation')
       .order('name', { ascending: true })
 
     setUsersLoading(false)
@@ -758,18 +799,31 @@ export default function App() {
     }
 
     const rows = (data ?? []) as UserListRow[]
-    setUsers(rows)
+
+    rows.sort((a, b) => {
+      const al = lastNameKey(a.name)
+      const bl = lastNameKey(b.name)
+      if (al !== bl) return al.localeCompare(bl)
+      // tie-breaker: first+middle names
+      return (a.name ?? '').localeCompare(b.name ?? '')
+    })
+
+setUsers(rows)
+
 
     const nextPassDraft: Record<string, string> = {}
     const nextCdnaDraft: Record<string, string> = {}
+    const nextProbationDraft: Record<string, boolean> = {}
 
     for (const r of rows) {
       nextPassDraft[r.email] = String(r.passes ?? 0)
       nextCdnaDraft[r.email] = String((r as any).cdnas ?? 0)
+      nextProbationDraft[r.email] = r.on_probation === true
     }
 
     setDraftPasses(nextPassDraft)
     setDraftCdnas(nextCdnaDraft)
+    setDraftProbation(nextProbationDraft)
 
   }
 
@@ -1022,6 +1076,35 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.email])
 
+  useEffect(() => {
+    const savedEmail = localStorage.getItem(STORAGE_KEY)
+    if (!savedEmail) return
+    if (user) return // already logged in
+
+    const autoLogin = async () => {
+      const { data, error } = await supabase
+        .from('users')
+        .select('name, email, passes, cdnas, is_admin, on_probation, password_hash, password_salt')
+        .eq('email', savedEmail)
+        .maybeSingle()
+
+      if (error || !data) {
+        localStorage.removeItem(STORAGE_KEY)
+        return
+      }
+
+      setKeepSignedIn(true)
+      setNeedsPasswordSetup(false)
+      setUser(data as UserRow)
+      setView('pass')
+      setArea('menu')
+    }
+
+    void autoLogin()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+
 
   const savePasses = async (rowEmail: string) => {
     setUsersError('')
@@ -1085,6 +1168,32 @@ export default function App() {
     )
   }
 
+  const saveProbation = async (email: string) => {
+    setUsersError('')
+    setSavingEmail(email)
+
+    const nextVal = !!draftProbation[email]
+
+    const { error } = await supabase
+      .from('users')
+      .update({ on_probation: nextVal })
+      .eq('email', email)
+
+    setSavingEmail(null)
+
+    if (error) {
+      console.error(error)
+      setUsersError(`Failed to save probation: ${error.message}`)
+      return
+    }
+
+    // update local list so the UI reflects immediately
+    setUsers((prev) =>
+      prev.map((u) => (u.email === email ? { ...u, on_probation: nextVal } : u))
+    )
+  }
+
+
 
   return (
     <div className="page">
@@ -1138,6 +1247,16 @@ export default function App() {
                 onChange={(e) => setPassword(e.target.value)}
               />
 
+              <label style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 13, color: 'rgba(255,255,255,0.75)' }}>
+                <input
+                  type="checkbox"
+                  checked={keepSignedIn}
+                  onChange={(e) => setKeepSignedIn(e.target.checked)}
+                />
+                Keep me signed in
+              </label>
+
+
 
               <button className="btn btnGold" type="submit" disabled={loading}>
                 {loading ? 'Checking…' : 'Continue'}
@@ -1187,8 +1306,21 @@ export default function App() {
             <aside className="adminNav">
               <div className="adminNavTitle">Admin</div>
 
+
               <button
-                className={`btn btnGold adminTabBtn ${adminTab === 'cdnaCount' ? 'active' : ''}`}
+                className={`btn btnBlueMetal adminTabBtn ${adminTab === 'probationStatus' ? 'active' : ''}`}
+
+                type="button"
+                onClick={() => {
+                  setAdminTab('probationStatus')
+                  loadUsers()
+                }}
+              >
+                Probation Status
+              </button>
+
+              <button
+                className={`btn btnRedMetal adminTabBtn ${adminTab === 'cdnaCount' ? 'active' : ''}`}
                 type="button"
                 onClick={() => {
                   setAdminTab('cdnaCount')
@@ -1198,19 +1330,21 @@ export default function App() {
                 CDNA Count
               </button>
 
+
               <button
-                className={`btn btnGold adminTabBtn ${adminTab === 'cdnaTransferRequests' ? 'active' : ''}`}
+                className={`btn btnRedMetal adminTabBtn ${adminTab === 'cdnaTransferRequests' ? 'active' : ''}`}
                 type="button"
                 onClick={() => {
                   setAdminTab('cdnaTransferRequests')
                   loadCdnaTransferRequests()
                 }}
               >
-                CDNA Transfer Requests
+                Requests to Use CDNAs
+
               </button>
 
               <button
-                className={`btn btnGold adminTabBtn ${adminTab === 'cdnaIncentiveRequests' ? 'active' : ''}`}
+                className={`btn btnRedMetal adminTabBtn ${adminTab === 'cdnaIncentiveRequests' ? 'active' : ''}`}
                 type="button"
                 onClick={() => {
                   setAdminTab('cdnaIncentiveRequests')
@@ -1224,7 +1358,7 @@ export default function App() {
 
 
               <button
-                className={`btn btnGold adminTabBtn ${adminTab === 'passCount' ? 'active' : ''}`}
+                className={`btn btnSilver adminTabBtn ${adminTab === 'passCount' ? 'active' : ''}`}
                 type="button"
                 onClick={() => setAdminTab('passCount')}
               >
@@ -1232,22 +1366,23 @@ export default function App() {
               </button>
 
               <button
-                className={`btn btnGold adminTabBtn ${adminTab === 'passTransferRequests' ? 'active' : ''}`}
+                className={`btn btnSilver adminTabBtn ${adminTab === 'passTransferRequests' ? 'active' : ''}`}
                 type="button"
                 onClick={() => setAdminTab('passTransferRequests')}
               >
-                Pass Transfer Requests
+                FN Pass Transfer Requests
+
               </button>
 
               <button
-                className={`btn btnGold adminTabBtn ${adminTab === 'incentivePassRequests' ? 'active' : ''}`}
+                className={`btn btnSilver adminTabBtn ${adminTab === 'incentivePassRequests' ? 'active' : ''}`}
                 type="button"
                 onClick={() => setAdminTab('incentivePassRequests')}
               >
                 Incentive Pass Requests
               </button>
 
-              <div className="adminNavSpacer" />
+
 
               <button className="btn btnSmall" type="button" onClick={signOut}>
                 Sign out
@@ -1318,11 +1453,76 @@ export default function App() {
                   )}
                 </div>
               </>
+
+              ) : adminTab === 'probationStatus' ? (
+                <>
+                  <div className="adminTopRow">
+                    <div>
+                      <div className="adminTitle">Probation Status</div>
+                      <div className="adminSub">Toggle probation on/off and click Save.</div>
+                    </div>
+
+                    <button className="btn btnSmall" type="button" onClick={loadUsers} disabled={usersLoading}>
+                      {usersLoading ? 'Refreshing…' : 'Refresh'}
+                    </button>
+                  </div>
+
+                  {usersError && (
+                    <div className="error" style={{ marginTop: 10 }}>
+                      {usersError}
+                    </div>
+                  )}
+
+                  <div className="adminList">
+                    {usersLoading ? (
+                      <div className="adminEmpty">Loading users…</div>
+                    ) : users.length === 0 ? (
+                      <div className="adminEmpty">No users found.</div>
+                    ) : (
+                      users.map((u) => (
+                        <div className="adminRow" key={u.email}>
+                          <div className="adminRowLeft">
+                            <div className="adminRowName">{u.name}</div>
+                            <div className="adminRowEmail">{u.email}</div>
+                          </div>
+
+                          <div className="adminRowRight">
+                            <div className="adminRowLabel">Probation</div>
+
+                            <select
+                              className="adminPassInput"
+                              value={draftProbation[u.email] ? 'yes' : 'no'}
+                              onChange={(e) =>
+                                setDraftProbation((prev) => ({
+                                  ...prev,
+                                  [u.email]: e.target.value === 'yes',
+                                }))
+                              }
+                            >
+                              <option value="no">No</option>
+                              <option value="yes">Yes</option>
+                            </select>
+
+                            <button
+                              className="btn btnGold btnSmall"
+                              type="button"
+                              onClick={() => saveProbation(u.email)}
+                              disabled={savingEmail === u.email}
+                            >
+                              {savingEmail === u.email ? 'Saving…' : 'Save'}
+                            </button>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </>
+
             ) : adminTab === 'passTransferRequests' ? (
               <>
                 <div className="adminTopRow">
                   <div>
-                    <div className="adminTitle">Pass Transfer Requests</div>
+                    <div className="adminTitle">Falcon Net Pass Transfer Requests</div>
                     <div className="adminSub">Approve removes passes from this system.</div>
                   </div>
 
@@ -1517,7 +1717,7 @@ export default function App() {
               <>
                 <div className="adminTopRow">
                   <div>
-                    <div className="adminTitle">CDNA Transfer Requests</div>
+                    <div className="adminTitle">Requests to Use CDNAs</div>
                     <div className="adminSub">Approve removes CDNAs from this system.</div>
                   </div>
 
@@ -1733,7 +1933,8 @@ export default function App() {
                   })
                 }}
               >
-                Request Pass Transfer
+                Request Transfer to Falcon Net
+
               </button>
 
               <button
@@ -1949,7 +2150,7 @@ export default function App() {
                     })
                   }}
                 >
-                  Request CDNA Transfer
+                  Request to Use CDNA
                 </button>
 
                 <button
