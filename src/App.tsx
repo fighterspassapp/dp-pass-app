@@ -658,8 +658,7 @@ export default function App() {
 ]
 
   const isBlockedFromTab = !isPermanentParty && ppOnlyTabs.includes(adminTab)
-  const isPPTab = ppOnlyTabs.includes(adminTab)
-
+  
   const nextAdminDraft: Record<string, boolean> = {}
 
 
