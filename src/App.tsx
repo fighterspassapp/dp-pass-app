@@ -2573,8 +2573,7 @@ setUsers(rows)
                       color: 'rgba(255,255,255,0.6)',
                     }}
                   >
-                    CDNA transfer requests are reviewed by permanent party every Thursday. If you need a CDNA
-                    transfer request to be approved before then please reach directly to permanent party.
+                    CDNA transfer requests are reviewed by permanent party daily. If your CDNA is not gettign approved, then please reach directly to permanent party.
                   </div>
                 </div>
               )}
