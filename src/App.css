@@ -283,6 +283,16 @@
   transition: background 0.15s ease, transform 0.06s ease, filter 0.15s ease;
 }
 
+.adminTabBtn:disabled,
+.disabledPP:disabled {
+  opacity: 0.45;
+  filter: grayscale(100%);
+  cursor: not-allowed;
+}
+
+
+
+
 .btn:hover { background: var(--btnHover); }
 .btn:active { transform: translateY(1px); }
 .btn:disabled { opacity: 0.65; cursor: not-allowed; }
@@ -292,6 +302,19 @@
   border-radius: 12px;
   font-size: 13px;
 }
+.btnMochaDunk {
+  background: linear-gradient(145deg, #4b352b, #2f221c);
+  color: #f4efe9;
+  border: 1px solid #221812;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.06);
+}
+
+.btnMochaDunk:hover {
+  background: linear-gradient(145deg, #5a4034, #372821);
+}
+
+
+
 
 .btnGold {
   border: 1px solid rgba(201,162,74,0.45);

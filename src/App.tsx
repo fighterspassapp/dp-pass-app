@@ -61,6 +61,7 @@ type UserRow = {
   on_probation: boolean
   password_hash?: string | null
   password_salt?: string | null
+  is_permanent_party: boolean
 }
 
 
@@ -70,6 +71,7 @@ type UserListRow = {
   passes: number
   cdnas: number
   on_probation?: boolean | null
+  is_admin: boolean
 }
 
 
@@ -100,6 +102,8 @@ type AdminTab =
   | 'cdnaTransferRequests'
   | 'cdnaIncentiveRequests'
   | 'probationStatus'
+  | 'adminPrivileges'
+
 
 
 function lastNameKey(fullName: string) {
@@ -171,6 +175,7 @@ export default function App() {
   const [cdnaIncentiveActionId, setCdnaIncentiveActionId] = useState<number | null>(null)
 
   const [adminUserSearch, setAdminUserSearch] = useState('')
+
 
 
 
@@ -617,6 +622,10 @@ export default function App() {
   const [view, setView] = useState<View>('pass')
   const [adminTab, setAdminTab] = useState<AdminTab>('passCount')
 
+  type AdminMode = 'main' | 'pp'
+  const [adminMode, setAdminMode] = useState<AdminMode>('main')
+
+
   type Area = 'menu' | 'passes' | 'cdna'
   const [area, setArea] = useState<Area>('menu')
 
@@ -634,9 +643,29 @@ export default function App() {
 
   const [draftProbation, setDraftProbation] = useState<Record<string, boolean>>({})
 
-
+  const [draftIsAdmin, setDraftIsAdmin] = useState<Record<string, boolean>>({})
 
   const isAdmin = user?.is_admin === true
+  const isPermanentParty = user?.is_permanent_party === true
+
+  const ppOnlyTabs: AdminTab[] = [
+  'probationStatus',
+  'passTransferRequests',
+  'cdnaTransferRequests',
+  'passCount',
+  'cdnaCount',
+  'adminPrivileges',
+]
+
+  const isBlockedFromTab = !isPermanentParty && ppOnlyTabs.includes(adminTab)
+  const isPPTab = ppOnlyTabs.includes(adminTab)
+
+  const nextAdminDraft: Record<string, boolean> = {}
+
+
+
+
+
 
   const submitCreatePassword = async () => {
     if (!user) return
@@ -696,7 +725,7 @@ export default function App() {
 
       const { data, error } = await supabase
         .from('users')
-        .select('name, email, passes, cdnas, is_admin, on_probation, password_hash, password_salt')
+        .select('name, email, passes, cdnas, is_admin, on_probation, password_hash, password_salt, is_permanent_party')
         .eq('email', normalizedEmail)
         .maybeSingle()
 
@@ -768,13 +797,14 @@ export default function App() {
     setSavingEmail(null)
     localStorage.removeItem(STORAGE_KEY)
     setDraftProbation({})
-
-
+    setAdminMode('main')
+    setDraftIsAdmin({})
   }
 
   const enterAdmin = () => {
     if (!isAdmin) return
     setView('admin')
+    setAdminMode('main')
     setAdminTab('passCount')
   }
 
@@ -790,7 +820,7 @@ export default function App() {
 
     const { data, error } = await supabase
       .from('users')
-      .select('name, email, passes, cdnas, on_probation')
+      .select('name, email, passes, cdnas, on_probation, is_admin')
       .order('name', { ascending: true })
 
     setUsersLoading(false)
@@ -822,11 +852,13 @@ setUsers(rows)
       nextPassDraft[r.email] = String(r.passes ?? 0)
       nextCdnaDraft[r.email] = String((r as any).cdnas ?? 0)
       nextProbationDraft[r.email] = r.on_probation === true
+      nextAdminDraft[r.email] = r.is_admin === true
     }
 
     setDraftPasses(nextPassDraft)
     setDraftCdnas(nextCdnaDraft)
     setDraftProbation(nextProbationDraft)
+    setDraftIsAdmin(nextAdminDraft)
 
   }
 
@@ -1087,7 +1119,7 @@ setUsers(rows)
     const autoLogin = async () => {
       const { data, error } = await supabase
         .from('users')
-        .select('name, email, passes, cdnas, is_admin, on_probation, password_hash, password_salt')
+        .select('name, email, passes, cdnas, is_admin, on_probation, password_hash, password_salt, is_permanent_party')
         .eq('email', savedEmail)
         .maybeSingle()
 
@@ -1106,6 +1138,14 @@ setUsers(rows)
     void autoLogin()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  useEffect(() => {
+    if (adminMode === 'main' && ppOnlyTabs.includes(adminTab)) {
+      setAdminTab('passCount')
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+}, [adminMode])
+
 
 
 
@@ -1195,6 +1235,34 @@ setUsers(rows)
       prev.map((u) => (u.email === email ? { ...u, on_probation: nextVal } : u))
     )
   }
+
+  const saveIsAdmin = async (email: string) => {
+    setUsersError('')
+    setSavingEmail(email)
+
+    const nextVal = !!draftIsAdmin[email]
+
+    const { error } = await supabase
+      .from('users')
+      .update({ is_admin: nextVal })
+      .eq('email', email)
+
+    setSavingEmail(null)
+
+    if (error) {
+      console.error(error)
+      setUsersError(`Failed to save admin status: ${error.message}`)
+      return
+    }
+
+    setUsers((prev) =>
+      prev.map((u) => (u.email === email ? { ...u, is_admin: nextVal } : u))
+    )
+
+    // If you’re changing YOURSELF, also sync local logged-in user
+    setUser((prev) => (prev?.email === email ? { ...prev, is_admin: nextVal } : prev))
+  }
+
 
   const normalizedAdminQuery = adminUserSearch.trim().toLowerCase()
 
@@ -1321,90 +1389,147 @@ setUsers(rows)
             <aside className="adminNav">
               <div className="adminNavTitle">Admin</div>
 
+              {adminMode === 'main' ? (
+                <>
+                  {/* Permanent Party Portal entry button (shows, but disabled if not PP) */}
+                  <button
+                    className={`btn btnBlueMetal adminTabBtn ${isPermanentParty ? '' : 'disabledPP'}`}
+                    type="button"
+                    disabled={!isPermanentParty}
+                    title={!isPermanentParty ? 'Permanent Party only' : ''}
+                    onClick={() => {
+                      if (!isPermanentParty) return
+                      setAdminMode('pp')
+                      setAdminTab('probationStatus')
+                      loadUsers()
+                    }}
+                  >
+                    Permanent Party Portal
+                  </button>
 
-              <button
-                className={`btn btnBlueMetal adminTabBtn ${adminTab === 'probationStatus' ? 'active' : ''}`}
+                  {/* NORMAL ADMIN BUTTONS (everyone who is admin sees these) */}
 
-                type="button"
-                onClick={() => {
-                  setAdminTab('probationStatus')
-                  loadUsers()
-                }}
-              >
-                Probation Status
-              </button>
-
-              <button
-                className={`btn btnRedMetal adminTabBtn ${adminTab === 'cdnaCount' ? 'active' : ''}`}
-                type="button"
-                onClick={() => {
-                  setAdminTab('cdnaCount')
-                  loadUsers()
-                }}
-              >
-                CDNA Count
-              </button>
-
-
-              <button
-                className={`btn btnRedMetal adminTabBtn ${adminTab === 'cdnaTransferRequests' ? 'active' : ''}`}
-                type="button"
-                onClick={() => {
-                  setAdminTab('cdnaTransferRequests')
-                  loadCdnaTransferRequests()
-                }}
-              >
-                Requests to Use CDNAs
-
-              </button>
-
-              <button
-                className={`btn btnRedMetal adminTabBtn ${adminTab === 'cdnaIncentiveRequests' ? 'active' : ''}`}
-                type="button"
-                onClick={() => {
-                  setAdminTab('cdnaIncentiveRequests')
-                  loadCdnaIncentiveRequests()
-                }}
-              >
-                Incentive CDNA Requests
-              </button>
+                  <button
+                    className={`btn btnRedMetal adminTabBtn ${adminTab === 'cdnaIncentiveRequests' ? 'active' : ''}`}
+                    type="button"
+                    onClick={() => {
+                      setAdminTab('cdnaIncentiveRequests')
+                      loadCdnaIncentiveRequests()
+                    }}
+                  >
+                    Incentive CDNA Requests
+                  </button>
 
 
+                  <button
+                    className={`btn btnSilver adminTabBtn ${adminTab === 'incentivePassRequests' ? 'active' : ''}`}
+                    type="button"
+                    onClick={() => setAdminTab('incentivePassRequests')}
+                  >
+                    Incentive Pass Requests
+                  </button>
+
+                  <button className="btn btnSmall" type="button" onClick={signOut}>
+                    Sign out
+                  </button>
+                </>
+              ) : (
+                <>
+                  {/* PERMANENT PARTY “SUBPAGE”: ONLY 3 BUTTONS */}
+                  <div className="adminNavTitle" style={{ marginTop: 6 }}>
+                    Permanent Party
+                  </div>
+
+                  <button
+                    className={`btn btnBlueMetal adminTabBtn ${adminTab === 'probationStatus' ? 'active' : ''}`}
+                    type="button"
+                    onClick={() => {
+                      setAdminTab('probationStatus')
+                      loadUsers()
+                    }}
+                  >
+                    Probation Status
+                  </button>
+
+                  <button
+                    className={`btn btnRedMetal adminTabBtn ${adminTab === 'passTransferRequests' ? 'active' : ''}`}
+                    type="button"
+                    onClick={() => {
+                      setAdminTab('passTransferRequests')
+                      loadTransferRequests()
+                    }}
+                  >
+                    FN Pass Transfer Requests
+                  </button>
+                  <button
+                    className={`btn btnRedMetal adminTabBtn ${adminTab === 'passCount' ? 'active' : ''}`}
+                    type="button"
+                    onClick={() => setAdminTab('passCount')}
+                  >
+                    Pass Count
+                  </button>
+
+                  <button
+                    className={`btn btnSilver adminTabBtn ${adminTab === 'cdnaTransferRequests' ? 'active' : ''}`}
+                    type="button"
+                    onClick={() => {
+                      setAdminTab('cdnaTransferRequests')
+                      loadCdnaTransferRequests()
+                    }}
+                  >
+                    Requests to Use CDNAs
+                  </button>
+
+                  <button
+                    className={`btn btnSilver adminTabBtn ${adminTab === 'cdnaCount' ? 'active' : ''}`}
+                    type="button"
+                    onClick={() => {
+                      setAdminTab('cdnaCount')
+                      loadUsers()
+                    }}
+                  >
+                    CDNA Count
+                  </button>
+
+                  <button
+                    className={`btn btnMochaDunk adminTabBtn ${adminTab === 'adminPrivileges' ? 'active' : ''}`}
+                    type="button"
+                    onClick={() => {
+                      setAdminTab('adminPrivileges')
+                      loadUsers()
+                    }}
+                  >
+                    Admin Privileges
+                  </button>
 
 
-              <button
-                className={`btn btnSilver adminTabBtn ${adminTab === 'passCount' ? 'active' : ''}`}
-                type="button"
-                onClick={() => setAdminTab('passCount')}
-              >
-                Pass Count
-              </button>
+                 <button
+                  className="btn btnSmall"
+                  type="button"
+                  style={{ marginTop: 14, width: '50%' }}
+                  onClick={() => {
+                    setAdminMode('main')
+                    setAdminTab('passCount')
+                  }}
+                >
+                  Back
+                </button>
 
-              <button
-                className={`btn btnSilver adminTabBtn ${adminTab === 'passTransferRequests' ? 'active' : ''}`}
-                type="button"
-                onClick={() => setAdminTab('passTransferRequests')}
-              >
-                FN Pass Transfer Requests
+                <button
+                  className="btn btnSmall"
+                  type="button"
+                  style={{ width: '50%' }}   // 👈 make it full width
+                  onClick={signOut}
+                >
+                  Sign out
+                </button>
 
-              </button>
-
-              <button
-                className={`btn btnSilver adminTabBtn ${adminTab === 'incentivePassRequests' ? 'active' : ''}`}
-                type="button"
-                onClick={() => setAdminTab('incentivePassRequests')}
-              >
-                Incentive Pass Requests
-              </button>
-
-
-
-              <button className="btn btnSmall" type="button" onClick={signOut}>
-                Sign out
-              </button>
+                </>
+              )}
             </aside>
 
           <section className="adminContent">
+
             {adminTab === 'passCount' ? (
               <>
                 <div className="adminTopRow">
@@ -1472,8 +1597,12 @@ setUsers(rows)
                 </div>
               </>
           
-
-            ): adminTab === 'probationStatus' ? (
+            ) : adminTab === 'probationStatus' ? (
+              isBlockedFromTab ? (
+                <div className="error" style={{ marginTop: 20 }}>
+                  Permanent Party only.
+                </div>
+              ) : (
                 <>
                   <div className="adminTopRow">
                     <div>
@@ -1481,7 +1610,6 @@ setUsers(rows)
                       <div className="adminSub">Toggle probation on/off and click Save.</div>
                     </div>
 
-                    {/* SEARCH BAR */}
                     <input
                       className="adminPassInput adminSearchInput"
                       type="text"
@@ -1490,12 +1618,10 @@ setUsers(rows)
                       onChange={(e) => setAdminUserSearch(e.target.value)}
                     />
 
-
                     <button className="btn btnSmall" type="button" onClick={loadUsers} disabled={usersLoading}>
                       {usersLoading ? 'Refreshing…' : 'Refresh'}
                     </button>
                   </div>
-
 
                   {usersError && (
                     <div className="error" style={{ marginTop: 10 }}>
@@ -1503,7 +1629,7 @@ setUsers(rows)
                     </div>
                   )}
 
-                   <div className="adminList">
+                  <div className="adminList">
                     {usersLoading ? (
                       <div className="adminEmpty">Loading users…</div>
                     ) : filteredUsers.length === 0 ? (
@@ -1547,8 +1673,16 @@ setUsers(rows)
                     )}
                   </div>
                 </>
+              )
+
+            
 
             ) : adminTab === 'passTransferRequests' ? (
+              isBlockedFromTab ? (
+                <div className="error" style={{ marginTop: 20 }}>
+                  Permanent Party only.
+                </div>
+              ) : (
               <>
                 <div className="adminTopRow">
                   <div>
@@ -1612,6 +1746,7 @@ setUsers(rows)
                   )}
                 </div>
               </>
+              )
             ) : adminTab === 'incentivePassRequests' ? (
               <>
                 <div className="adminTopRow">
@@ -1756,6 +1891,11 @@ setUsers(rows)
                 </div>
               </>
             ) : adminTab === 'cdnaTransferRequests' ? (
+              isBlockedFromTab ? (
+                <div className="error" style={{ marginTop: 20 }}>
+                  Permanent Party only.
+                </div>
+              ) : (
               <>
                 <div className="adminTopRow">
                   <div>
@@ -1819,6 +1959,7 @@ setUsers(rows)
                   )}
                 </div>
               </>
+              )
             ) : adminTab === 'cdnaIncentiveRequests' ? (
               <>
                 <div className="adminTopRow">
@@ -1887,7 +2028,86 @@ setUsers(rows)
                   )}
                 </div>
               </>
-            ) : null }
+             
+            ) : adminTab === 'adminPrivileges' ? (
+              isBlockedFromTab ? (
+                <div className="error" style={{ marginTop: 20 }}>
+                  Permanent Party only.
+                </div>
+              ) : (
+                <>
+                  <div className="adminTopRow">
+                    <div>
+                      <div className="adminTitle">Admin Privileges</div>
+                      <div className="adminSub">Toggle admin access and click Save.</div>
+                    </div>
+
+                    <input
+                      className="adminPassInput adminSearchInput"
+                      type="text"
+                      placeholder="Search name or email…"
+                      value={adminUserSearch}
+                      onChange={(e) => setAdminUserSearch(e.target.value)}
+                    />
+
+                    <button className="btn btnSmall" type="button" onClick={loadUsers} disabled={usersLoading}>
+                      {usersLoading ? 'Refreshing…' : 'Refresh'}
+                    </button>
+                  </div>
+
+                  {usersError && (
+                    <div className="error" style={{ marginTop: 10 }}>
+                      {usersError}
+                    </div>
+                  )}
+
+                  <div className="adminList">
+                    {usersLoading ? (
+                      <div className="adminEmpty">Loading users…</div>
+                    ) : filteredUsers.length === 0 ? (
+                      <div className="adminEmpty">No matching users.</div>
+                    ) : (
+                      filteredUsers.map((u) => (
+                        <div className="adminRow" key={u.email}>
+                          <div className="adminRowLeft">
+                            <div className="adminRowName">{u.name}</div>
+                            <div className="adminRowEmail">{u.email}</div>
+                          </div>
+
+                          <div className="adminRowRight">
+                            <div className="adminRowLabel">Admin</div>
+
+                            <select
+                              className="adminPassInput"
+                              value={draftIsAdmin[u.email] ? 'yes' : 'no'}
+                              onChange={(e) =>
+                                setDraftIsAdmin((prev) => ({
+                                  ...prev,
+                                  [u.email]: e.target.value === 'yes',
+                                }))
+                              }
+                            >
+                              <option value="no">No</option>
+                              <option value="yes">Yes</option>
+                            </select>
+
+                            <button
+                              className="btn btnGold btnSmall"
+                              type="button"
+                              onClick={() => saveIsAdmin(u.email)}
+                              disabled={savingEmail === u.email}
+                            >
+                              {savingEmail === u.email ? 'Saving…' : 'Save'}
+                            </button>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </>
+              
+              ))
+            : null }
           
           </section>
 
