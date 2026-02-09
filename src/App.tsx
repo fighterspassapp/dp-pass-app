@@ -620,7 +620,7 @@ export default function App() {
 
   // navigation state
   const [view, setView] = useState<View>('pass')
-  const [adminTab, setAdminTab] = useState<AdminTab>('passCount')
+  const [adminTab, setAdminTab] = useState<AdminTab>('passTransferRequests')
 
   type AdminMode = 'main' | 'pp'
   const [adminMode, setAdminMode] = useState<AdminMode>('main')
@@ -647,6 +647,7 @@ export default function App() {
 
   const isAdmin = user?.is_admin === true
   const isPermanentParty = user?.is_permanent_party === true
+  const isPP = adminMode === 'pp'
 
   const ppOnlyTabs: AdminTab[] = [
   'probationStatus',
@@ -660,6 +661,10 @@ export default function App() {
   const isBlockedFromTab = !isPermanentParty && ppOnlyTabs.includes(adminTab)
   
   const nextAdminDraft: Record<string, boolean> = {}
+
+  
+
+  
 
 
 
@@ -789,7 +794,7 @@ export default function App() {
     setConfirmPassword('')
     setArea('menu')
     setView('pass')
-    setAdminTab('passCount')
+    setAdminTab('passTransferRequests')
     setUsers([])
     setDraftPasses({})
     setUsersError('')
@@ -804,7 +809,7 @@ export default function App() {
     if (!isAdmin) return
     setView('admin')
     setAdminMode('main')
-    setAdminTab('passCount')
+    setAdminTab('passTransferRequests')
   }
 
   const exitAdmin = () => {
@@ -1072,7 +1077,7 @@ setUsers(rows)
 
 
   useEffect(() => {
-    if (view === 'admin' && adminTab === 'passCount' && isAdmin) {
+    if (view === 'admin' && adminTab === 'passTransferRequests' && isAdmin) {
       void loadUsers()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1140,10 +1145,17 @@ setUsers(rows)
 
   useEffect(() => {
     if (adminMode === 'main' && ppOnlyTabs.includes(adminTab)) {
-      setAdminTab('passCount')
+      setAdminTab('passTransferRequests')
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
 }, [adminMode])
+
+  useEffect(() => {
+    if (!isPP && adminTab === 'passCount') {
+      setAdminTab('incentivePassRequests');
+    }
+  }, [isPP, adminTab]);
+
 
 
 
@@ -1277,6 +1289,8 @@ setUsers(rows)
 
 
 
+
+
   return (
     <div className="page">
       {/* HEADER */}
@@ -1305,6 +1319,7 @@ setUsers(rows)
       <div className="mainArea">
         {!user ? (
           // LOGIN
+
           <div className="loginPanel">
             <h2 className="loginTitle">Enter your email</h2>
             <p className="loginSub">
@@ -1343,6 +1358,11 @@ setUsers(rows)
               <button className="btn btnGold" type="submit" disabled={loading}>
                 {loading ? 'Checking…' : 'Continue'}
               </button>
+
+              <div className="loginHelpText">
+                To reset password, please Teams C4C Verkamp.
+              </div>
+
 
               {error && <div className="error">{error}</div>}
             </form>
@@ -1508,7 +1528,7 @@ setUsers(rows)
                   style={{ marginTop: 14, width: '50%' }}
                   onClick={() => {
                     setAdminMode('main')
-                    setAdminTab('passCount')
+                    setAdminTab('passTransferRequests')
                   }}
                 >
                   Back
