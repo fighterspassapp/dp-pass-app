@@ -103,6 +103,7 @@ type AdminTab =
   | 'cdnaIncentiveRequests'
   | 'probationStatus'
   | 'adminPrivileges'
+  | 'bulkAwards'
 
 
 
@@ -175,6 +176,46 @@ export default function App() {
   const [cdnaIncentiveActionId, setCdnaIncentiveActionId] = useState<number | null>(null)
 
   const [adminUserSearch, setAdminUserSearch] = useState('')
+
+  const [bulkType, setBulkType] = useState<'pass' | 'cdna' | ''>('');
+  const [bulkAmount, setBulkAmount] = useState<number>(1);
+  const [bulkTarget, setBulkTarget] = useState<'all' | string>('all');
+
+  const handleBulkAward = async () => {
+
+    if (!bulkType) {
+      alert('Please select a type (Pass or CDNA) before applying awards.');
+      return;
+    }
+
+    const confirmed = confirm("Apply award to selected group?");
+    if (!confirmed) return;
+
+    const res = await fetch(
+      "https://kjapencpehqoaoknaxoq.supabase.co/functions/v1/bulk_award",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`
+        },
+        body: JSON.stringify({
+          type: bulkType,
+          amount: bulkAmount,
+          target: bulkTarget
+        })
+      }
+    );
+
+    if (!res.ok) {
+      const errorText = await res.text();
+      alert(`Bulk award failed: ${errorText}`);
+      return;
+    }
+
+    alert("Bulk award successful");
+
+  };
 
 
 
@@ -1500,6 +1541,15 @@ setUsers(rows)
                   </button>
 
                   <button
+                    className={`btn btnBlueMetal adminTabBtn ${adminTab === 'bulkAwards' ? 'active' : ''}`}
+                    type="button"
+                    onClick={() => setAdminTab('bulkAwards')}
+                    >
+                    Bulk Awards
+                    </button>
+
+
+                  <button
                     className={`btn btnSilver adminTabBtn ${adminTab === 'cdnaCount' ? 'active' : ''}`}
                     type="button"
                     onClick={() => {
@@ -1909,6 +1959,7 @@ setUsers(rows)
                   )}
                 </div>
               </>
+
             ) : adminTab === 'cdnaTransferRequests' ? (
               isBlockedFromTab ? (
                 <div className="error" style={{ marginTop: 20 }}>
@@ -2047,7 +2098,69 @@ setUsers(rows)
                   )}
                 </div>
               </>
-             
+            
+            ) : adminTab === 'bulkAwards' ? (
+
+              <>
+                <div className="adminTopRow">
+                  <div>
+                    <div className="adminTitle">Bulk Awards</div>
+                    <div className="adminSub">
+                      Add passes or CDNAs to everyone or an entire class.
+                    </div>
+                  </div>
+                </div>
+
+                <div className="adminCard">
+
+                  <label>Type</label>
+                  <select
+                    className="adminPassInput"
+                    value={bulkType}
+                    onChange={(e) => setBulkType(e.target.value as 'pass' | 'cdna' | '')}
+                  >
+                    <option value="">Choose type</option>
+                    <option value="pass">Pass</option>
+                    <option value="cdna">CDNA</option>
+                  </select>
+
+                  <label>Amount</label>
+                  <input
+                    className="adminPassInput"
+                    type="number"
+                    min={1}
+                    value={bulkAmount}
+                    onChange={(e)=>setBulkAmount(Number(e.target.value))}
+                  />
+
+                  <label>Target</label>
+                  <select
+                    className="adminPassInput"
+                    value={bulkTarget}
+                    onChange={(e)=>setBulkTarget(e.target.value)}
+                  >
+                    <option value="all">Everyone</option>
+                    <option value="26">Class 26</option>
+                    <option value="27">Class 27</option>
+                    <option value="28">Class 28</option>
+                    <option value="29">Class 29</option>
+                  </select>
+
+                  <button
+                    className="btn btnGold"
+                    type="button"
+                    onClick={handleBulkAward}
+                  >
+                    Apply Award
+                  </button>
+
+                </div>
+              </>
+
+
+
+
+            
             ) : adminTab === 'adminPrivileges' ? (
               isBlockedFromTab ? (
                 <div className="error" style={{ marginTop: 20 }}>
@@ -2593,7 +2706,7 @@ setUsers(rows)
                       color: 'rgba(255,255,255,0.6)',
                     }}
                   >
-                    CDNA transfer requests are reviewed by permanent party daily. If your CDNA is not gettign approved, then please reach directly to permanent party.
+                    *MUST BE SUBMITTED BY 1500* CDNA transfer requests are reviewed by permanent party daily. If your CDNA is not gettign approved, then please reach directly to permanent party.
                   </div>
                 </div>
               )}
