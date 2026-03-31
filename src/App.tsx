@@ -57,6 +57,7 @@ type UserRow = {
   email: string
   passes: number
   cdnas: number
+  available_cdnas: number
   is_admin: boolean
   on_probation: boolean
   password_hash?: string | null
@@ -70,6 +71,7 @@ type UserListRow = {
   email: string
   passes: number
   cdnas: number
+  available_cdnas: number
   on_probation?: boolean | null
   is_admin: boolean
 }
@@ -104,6 +106,7 @@ type AdminTab =
   | 'probationStatus'
   | 'adminPrivileges'
   | 'bulkAwards'
+  | 'cdnaLimitBulkSubtraction'
 
 
 
@@ -181,6 +184,11 @@ export default function App() {
   const [bulkAmount, setBulkAmount] = useState<number>(1);
   const [bulkTarget, setBulkTarget] = useState<'all' | string>('all');
 
+  const [cdnaLimitBulkAmount, setCdnaLimitBulkAmount] = useState<number>(1);
+  const [cdnaLimitBulkTarget, setCdnaLimitBulkTarget] = useState<'all' | string>('all');
+  const [cdnaLimitBulkLoading, setCdnaLimitBulkLoading] = useState(false);
+  const [cdnaLimitBulkMsg, setCdnaLimitBulkMsg] = useState('');
+
   const handleBulkAward = async () => {
 
     if (!bulkType) {
@@ -214,7 +222,62 @@ export default function App() {
     }
 
     alert("Bulk award successful");
+  };
 
+  const handleCdnaLimitBulkSubtraction = async () => {
+    const amount = Number(cdnaLimitBulkAmount);
+    if (!Number.isInteger(amount) || amount < 1) {
+      setCdnaLimitBulkMsg('Enter a valid amount 1 or greater.');
+      return;
+    }
+
+    const confirmed = confirm(`Subtract ${amount} available CDNAs from target users?`);
+    if (!confirmed) return;
+
+    setCdnaLimitBulkLoading(true);
+    setCdnaLimitBulkMsg('Processing bulk subtraction...');
+
+    const { data: usersFromDb, error } = await supabase
+      .from('users')
+      .select('email, available_cdnas');
+
+    if (error) {
+      setCdnaLimitBulkLoading(false);
+      setCdnaLimitBulkMsg(`Failed to load users: ${error.message}`);
+      return;
+    }
+
+    const usersToUpdate = (usersFromDb ?? []).filter((u: any) => {
+      if (cdnaLimitBulkTarget === 'all') return true;
+      const classMatch = String(u.email || '').match(/^c(\d+)/);
+      return classMatch?.[1] === cdnaLimitBulkTarget;
+    });
+
+    for (const u of usersToUpdate) {
+      const before = Number(u.available_cdnas ?? 0);
+      const next = Math.max(0, before - amount);
+      if (next === before) continue;
+
+      const { error: updateErr } = await supabase
+        .from('users')
+        .update({ available_cdnas: next })
+        .eq('email', u.email);
+
+      if (updateErr) {
+        setCdnaLimitBulkLoading(false);
+        setCdnaLimitBulkMsg(`Update failed for ${u.email}: ${updateErr.message}`);
+        return;
+      }
+
+      if (user?.email === u.email) {
+        setUser((prev) => (prev ? { ...prev, available_cdnas: next } : prev));
+      }
+    }
+
+    await loadUsers();
+
+    setCdnaLimitBulkLoading(false);
+    setCdnaLimitBulkMsg(`CDNA limit subtraction complete (${usersToUpdate.length} users applied).`);
   };
 
 
@@ -280,6 +343,7 @@ export default function App() {
     }
 
     const current = Number((u as any)?.cdnas ?? 0)
+    const current_available = Number((u as any)?.available_cdnas ?? 10)
     if (!Number.isFinite(current) || current < amt) {
       setCdnaTransferActionId(null)
       setCdnaTransferReqsError('Cannot approve: user does not have enough CDNAs.')
@@ -288,7 +352,7 @@ export default function App() {
 
     const { error: updateErr } = await supabase
       .from('users')
-      .update({ cdnas: current - amt })
+      .update({ cdnas: current - amt, available_cdnas: Math.max(0, current_available - 1) })
       .eq('email', req.email)
 
     if (updateErr) {
@@ -324,6 +388,11 @@ export default function App() {
     setUser((prev) =>
       prev?.email === req.email ? { ...prev, cdnas: Math.max(0, (prev.cdnas ?? 0) - amt) } : prev
     )
+
+    // clear pending transfer for logged-in user if this was their request
+    if (user?.email === req.email) {
+      setCdnaPendingTransfer(null)
+    }
   }
   
   const loadCdnaIncentiveRequests = async () => {
@@ -667,7 +736,7 @@ export default function App() {
   const [adminMode, setAdminMode] = useState<AdminMode>('main')
 
 
-  type Area = 'menu' | 'passes' | 'cdna'
+  type Area = 'menu' | 'passes' | 'cdna' | 'sleepins'
   const [area, setArea] = useState<Area>('menu')
 
 
@@ -696,6 +765,8 @@ export default function App() {
   'cdnaTransferRequests',
   'passCount',
   'cdnaCount',
+  'bulkAwards',
+  'cdnaLimitBulkSubtraction',
   'adminPrivileges',
 ]
 
@@ -770,7 +841,7 @@ export default function App() {
 
       const { data, error } = await supabase
         .from('users')
-        .select('name, email, passes, cdnas, is_admin, on_probation, password_hash, password_salt, is_permanent_party')
+        .select('name, email, passes, cdnas, available_cdnas, is_admin, on_probation, password_hash, password_salt, is_permanent_party')
         .eq('email', normalizedEmail)
         .maybeSingle()
 
@@ -865,7 +936,7 @@ export default function App() {
 
     const { data, error } = await supabase
       .from('users')
-      .select('name, email, passes, cdnas, on_probation, is_admin')
+      .select('name, email, passes, cdnas, available_cdnas, on_probation, is_admin')
       .order('name', { ascending: true })
 
     setUsersLoading(false)
@@ -1164,7 +1235,7 @@ setUsers(rows)
     const autoLogin = async () => {
       const { data, error } = await supabase
         .from('users')
-        .select('name, email, passes, cdnas, is_admin, on_probation, password_hash, password_salt, is_permanent_party')
+        .select('name, email, passes, cdnas, available_cdnas, is_admin, on_probation, password_hash, password_salt, is_permanent_party')
         .eq('email', savedEmail)
         .maybeSingle()
 
@@ -1501,17 +1572,6 @@ setUsers(rows)
                   </div>
 
                   <button
-                    className={`btn btnBlueMetal adminTabBtn ${adminTab === 'probationStatus' ? 'active' : ''}`}
-                    type="button"
-                    onClick={() => {
-                      setAdminTab('probationStatus')
-                      loadUsers()
-                    }}
-                  >
-                    Probation Status
-                  </button>
-
-                  <button
                     className={`btn btnRedMetal adminTabBtn ${adminTab === 'passTransferRequests' ? 'active' : ''}`}
                     type="button"
                     onClick={() => {
@@ -1521,16 +1581,9 @@ setUsers(rows)
                   >
                     FN Pass Transfer Requests
                   </button>
-                  <button
-                    className={`btn btnRedMetal adminTabBtn ${adminTab === 'passCount' ? 'active' : ''}`}
-                    type="button"
-                    onClick={() => setAdminTab('passCount')}
-                  >
-                    Pass Count
-                  </button>
 
                   <button
-                    className={`btn btnSilver adminTabBtn ${adminTab === 'cdnaTransferRequests' ? 'active' : ''}`}
+                    className={`btn btnRedMetal adminTabBtn ${adminTab === 'cdnaTransferRequests' ? 'active' : ''}`}
                     type="button"
                     onClick={() => {
                       setAdminTab('cdnaTransferRequests')
@@ -1541,16 +1594,15 @@ setUsers(rows)
                   </button>
 
                   <button
-                    className={`btn btnBlueMetal adminTabBtn ${adminTab === 'bulkAwards' ? 'active' : ''}`}
+                    className={`btn btnBlueMetal adminTabBtn ${adminTab === 'passCount' ? 'active' : ''}`}
                     type="button"
-                    onClick={() => setAdminTab('bulkAwards')}
-                    >
-                    Bulk Awards
-                    </button>
-
+                    onClick={() => setAdminTab('passCount')}
+                  >
+                    Pass Count
+                  </button>
 
                   <button
-                    className={`btn btnSilver adminTabBtn ${adminTab === 'cdnaCount' ? 'active' : ''}`}
+                    className={`btn btnBlueMetal adminTabBtn ${adminTab === 'cdnaCount' ? 'active' : ''}`}
                     type="button"
                     onClick={() => {
                       setAdminTab('cdnaCount')
@@ -1558,6 +1610,33 @@ setUsers(rows)
                     }}
                   >
                     CDNA Count
+                  </button>
+
+                  <button
+                    className={`btn btnSilver adminTabBtn ${adminTab === 'bulkAwards' ? 'active' : ''}`}
+                    type="button"
+                    onClick={() => setAdminTab('bulkAwards')}
+                    >
+                    Bulk Awards
+                    </button>
+
+                  <button
+                    className={`btn btnSilver adminTabBtn ${adminTab === 'cdnaLimitBulkSubtraction' ? 'active' : ''}`}
+                    type="button"
+                    onClick={() => setAdminTab('cdnaLimitBulkSubtraction')}
+                  >
+                    CDNA Limit Bulk Subtraction
+                  </button>
+
+                  <button
+                    className={`btn btnMochaDunk adminTabBtn ${adminTab === 'probationStatus' ? 'active' : ''}`}
+                    type="button"
+                    onClick={() => {
+                      setAdminTab('probationStatus')
+                      loadUsers()
+                    }}
+                  >
+                    Probation Status
                   </button>
 
                   <button
@@ -2161,6 +2240,56 @@ setUsers(rows)
 
 
             
+            ) : adminTab === 'cdnaLimitBulkSubtraction' ? (
+              <>
+                <div className="adminTopRow">
+                  <div>
+                    <div className="adminTitle">CDNA Limit Bulk Subtraction</div>
+                    <div className="adminSub">
+                      Subtract an amount from available CDNAs for selected users.
+                    </div>
+                  </div>
+                </div>
+
+                <div className="adminCard">
+                  <label>Amount</label>
+                  <input
+                    className="adminPassInput"
+                    type="number"
+                    min={1}
+                    value={cdnaLimitBulkAmount}
+                    onChange={(e) => setCdnaLimitBulkAmount(Number(e.target.value))}
+                  />
+
+                  <label>Target</label>
+                  <select
+                    className="adminPassInput"
+                    value={cdnaLimitBulkTarget}
+                    onChange={(e) => setCdnaLimitBulkTarget(e.target.value)}
+                  >
+                    <option value="all">Everyone</option>
+                    <option value="26">Class 26</option>
+                    <option value="27">Class 27</option>
+                    <option value="28">Class 28</option>
+                    <option value="29">Class 29</option>
+                  </select>
+
+                  <button
+                    className="btn btnSilver"
+                    type="button"
+                    onClick={handleCdnaLimitBulkSubtraction}
+                    disabled={cdnaLimitBulkLoading}
+                  >
+                    {cdnaLimitBulkLoading ? 'Processing…' : 'Apply Subtraction'}
+                  </button>
+
+                  {cdnaLimitBulkMsg && (
+                    <div className="adminSub" style={{ marginTop: 10 }}>
+                      {cdnaLimitBulkMsg}
+                    </div>
+                  )}
+                </div>
+              </>
             ) : adminTab === 'adminPrivileges' ? (
               isBlockedFromTab ? (
                 <div className="error" style={{ marginTop: 20 }}>
@@ -2287,6 +2416,16 @@ setUsers(rows)
                     }}
                   >
                     CDNAs
+                  </button>
+
+                  <button
+                    className="btn btnGold"
+                    type="button"
+                    onClick={() => {
+                      setArea('sleepins')
+                    }}
+                  >
+                    Sleep Ins
                   </button>
 
                   <button className="btn" type="button" onClick={signOut}>
@@ -2513,6 +2652,42 @@ setUsers(rows)
 
 </>
           )}
+          {area === 'sleepins' && (
+            <>
+              <div className="cardHeader">
+                <img src="/fightingLogo.png" className="logo" alt="Fighting Fourth" />
+
+                <div className="titleBlock">
+                  <h1 className="name">{user.name}</h1>
+                  <p className="email">{user.email}</p>
+                </div>
+              </div>
+
+              <div className="hr" />
+
+              <div className="statsRow">
+                <div className="label">Sleep Ins</div>
+                <div className="passes">0</div> {/* Placeholder, assuming no sleep ins count yet */}
+              </div>
+
+              <div className="actions">
+                {/* Placeholder buttons, can be customized later */}
+                <button
+                  className="btn"
+                  type="button"
+                  onClick={() => {
+                    setArea('menu')
+                  }}
+                >
+                  Back
+                </button>
+
+                <button className="btn" type="button" onClick={signOut}>
+                  Sign out
+                </button>
+              </div>
+            </>
+          )}
           {area === 'cdna' && (
             <>
               <div className="cardHeader">
@@ -2529,6 +2704,10 @@ setUsers(rows)
               <div className="statsRow">
                 <div className="label">CDNAs Left</div>
                 <div className="passes">{user.cdnas}</div>
+              </div>
+
+              <div style={{ fontSize: '20px', color: 'rgba(255,255,255,0.72)', marginTop: '16px' }}>
+                Available CDNAs Left This Semester: <span style={{ fontWeight: '820', color: 'rgba(255,255,255,0.95)' }}>{user.available_cdnas}</span>
               </div>
 
               <div className="actions">

@@ -283,6 +283,12 @@
   transition: background 0.15s ease, transform 0.06s ease, filter 0.15s ease;
 }
 
+.adminNav .btn {
+  width: 100%;
+  text-align: center;
+  margin-top: 10px;
+}
+
 .adminTabBtn:disabled,
 .disabledPP:disabled {
   opacity: 0.45;
