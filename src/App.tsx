@@ -398,27 +398,6 @@ export default function App() {
     return { bytes: filledBytes, firstName, lastName };
   }
 
-  const generateCdnaForm = async (request: PassTransferRequestRow) => {
-    try {
-      const result = await buildCdnaFormBytes(request);
-      if (!result) return;
-      const { bytes, firstName, lastName } = result;
-      const blob = new Blob([bytes], { type: 'application/pdf' });
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `${lastName.toUpperCase()}_${firstName.toUpperCase()}_CDNA_FORM10.pdf`;
-      document.body.appendChild(a);
-      a.click();
-      window.URL.revokeObjectURL(url);
-      document.body.removeChild(a);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      console.error('Error generating form:', message);
-      alert(`Failed to generate form: ${message}`);
-    }
-  }
-
   const approveCdnaTransferRequest = async (req: PassTransferRequestRow) => {
     setCdnaTransferReqsError('')
     setCdnaTransferActionId(req.id)
