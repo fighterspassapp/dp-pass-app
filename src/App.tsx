@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { supabase } from './supabase'
+import { PDFDocument } from 'pdf-lib'
 import './App.css'
 
 /* ========= PASSWORD HASH HELPERS (ADD HERE) ========= */
@@ -58,6 +59,7 @@ type UserRow = {
   passes: number
   cdnas: number
   available_cdnas: number
+  upper_two: boolean
   is_admin: boolean
   on_probation: boolean
   password_hash?: string | null
@@ -83,6 +85,7 @@ type PassTransferRequestRow = {
   name: string | null
   amount: number
   created_at: string
+  date_of_use?: string
 }
 
 type IncentivePassRequestRow = {
@@ -103,6 +106,7 @@ type AdminTab =
   | 'cdnaCount'
   | 'cdnaTransferRequests'
   | 'cdnaIncentiveRequests'
+  | 'sleepinRequests'
   | 'probationStatus'
   | 'adminPrivileges'
   | 'bulkAwards'
@@ -159,8 +163,11 @@ export default function App() {
   // ===== CDNA request UI state =====
   const [showCdnaTransferUI, setShowCdnaTransferUI] = useState(false)
   const [cdnaTransferAmount, setCdnaTransferAmount] = useState(1)
+  const [cdnaTransferDate, setCdnaTransferDate] = useState('')
   const [cdnaTransferLoading, setCdnaTransferLoading] = useState(false)
   const [cdnaPendingTransfer, setCdnaPendingTransfer] = useState<PassTransferRequestRow | null>(null)
+  const [approvedCdnaFormPath, setApprovedCdnaFormPath] = useState<string | null>(null)
+  const [confirmingCdnaDownload, setConfirmingCdnaDownload] = useState(false)
 
   const [showCdnaIncentiveUI, setShowCdnaIncentiveUI] = useState(false)
   const [cdnaIncentiveAmount, setCdnaIncentiveAmount] = useState(1)
@@ -179,6 +186,16 @@ export default function App() {
   const [cdnaIncentiveActionId, setCdnaIncentiveActionId] = useState<number | null>(null)
 
   const [adminUserSearch, setAdminUserSearch] = useState('')
+
+  const [sleepinReqs, setSleepinReqs] = useState<{ id: number; email: string; name: string | null; type: string; sleep_in_date: string | null; created_at: string }[]>([])
+  const [sleepinReqsLoading, setSleepinReqsLoading] = useState(false)
+  const [sleepinReqsError, setSleepinReqsError] = useState('')
+  const [sleepinActionId, setSleepinActionId] = useState<number | null>(null)
+
+  const [sleepinType, setSleepinType] = useState<'pass' | 'cdna' | ''>('')
+  const [sleepinDate, setSleepinDate] = useState('')
+  const [sleepinLoading, setSleepinLoading] = useState(false)
+  const [sleepinMsg, setSleepinMsg] = useState('')
 
   const [bulkType, setBulkType] = useState<'pass' | 'cdna' | ''>('');
   const [bulkAmount, setBulkAmount] = useState<number>(1);
@@ -289,7 +306,7 @@ export default function App() {
 
     const { data, error } = await supabase
       .from('cdna_transfer_requests')
-      .select('id, name, email, amount, created_at')
+      .select('id, name, email, amount, created_at, date_of_use')
       .order('created_at', { ascending: true })
 
     setCdnaTransferReqsLoading(false)
@@ -323,6 +340,85 @@ export default function App() {
     setCdnaTransferReqs((prev) => prev.filter((r) => r.id !== req.id))
   }
 
+  // Generates filled PDF bytes for a CDNA request. Returns null on error.
+  const buildCdnaFormBytes = async (request: PassTransferRequestRow): Promise<{ bytes: Uint8Array; firstName: string; lastName: string } | null> => {
+    const { data: formData, error: storageError } = await supabase.storage
+      .from('Form10PDF')
+      .download('CDNA Form 10.pdf');
+
+    if (storageError || !formData) {
+      alert(`Failed to load form template: ${storageError?.message || 'Unknown error'}`);
+      return null;
+    }
+
+    const pdfBytes = await formData.arrayBuffer();
+    const pdfDoc = await PDFDocument.load(pdfBytes);
+    const form = pdfDoc.getForm();
+
+    const classMatch = request.email.match(/^c(\d+)/);
+    const classYear = classMatch ? classMatch[1] : "";
+    let classYearFull = classYear;
+    if (classYear && classYear.length === 2) classYearFull = `20${classYear}`;
+
+    const fullName = request.name?.trim() || "";
+    const [firstName, ...rest] = fullName.split(/\s+/);
+    const lastName = rest.length > 0 ? rest[rest.length - 1] : firstName;
+
+    const dateOfRequest = new Date(request.created_at).toLocaleDateString();
+    const formatMMDDYY = (date: string) => {
+      const d = new Date(date + 'T12:00:00');
+      const mm = String(d.getMonth() + 1).padStart(2, '0');
+      const dd = String(d.getDate()).padStart(2, '0');
+      const yy = String(d.getFullYear()).slice(-2);
+      return `${mm}/${dd}/${yy}`;
+    };
+    const useDateShort = request.date_of_use ? formatMMDDYY(request.date_of_use) : '';
+    const reportText = `REPORT: Cadet ${lastName}, based on performance, has earned a Close Door No AMI on ${useDateShort}.\nCadet Squadron AOCs/AMTs reserve all approval authority for incentives.`;
+
+    const setFieldText = (name: string, text: string) => {
+      try {
+        const field = form.getFields().find((f) => f.getName() === name);
+        if (!field) return;
+        if ('setText' in field && typeof (field as any).setText === 'function') {
+          (field as any).setText(text);
+        } else if ('setValue' in field && typeof (field as any).setValue === 'function') {
+          (field as any).setValue(text);
+        }
+      } catch (e) {
+        console.warn(`Could not set field ${name}:`, e);
+      }
+    };
+
+    setFieldText('topmostSubform[0].Page1[0].TextField1[2]', `${lastName}, ${firstName}`);
+    setFieldText('topmostSubform[0].Page1[0].TextField1[0]', classYearFull);
+    setFieldText('topmostSubform[0].Page1[0].DateField1[0]', dateOfRequest);
+    setFieldText('topmostSubform[0].Page1[0].TextField1[6]', reportText);
+
+    const filledBytes = await pdfDoc.save();
+    return { bytes: filledBytes, firstName, lastName };
+  }
+
+  const generateCdnaForm = async (request: PassTransferRequestRow) => {
+    try {
+      const result = await buildCdnaFormBytes(request);
+      if (!result) return;
+      const { bytes, firstName, lastName } = result;
+      const blob = new Blob([bytes], { type: 'application/pdf' });
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${lastName.toUpperCase()}_${firstName.toUpperCase()}_CDNA_FORM10.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error('Error generating form:', message);
+      alert(`Failed to generate form: ${message}`);
+    }
+  }
+
   const approveCdnaTransferRequest = async (req: PassTransferRequestRow) => {
     setCdnaTransferReqsError('')
     setCdnaTransferActionId(req.id)
@@ -331,7 +427,7 @@ export default function App() {
 
     const { data: u, error: fetchErr } = await supabase
       .from('users')
-      .select('cdnas')
+      .select('cdnas, available_cdnas')
       .eq('email', req.email)
       .maybeSingle()
 
@@ -343,7 +439,7 @@ export default function App() {
     }
 
     const current = Number((u as any)?.cdnas ?? 0)
-    const current_available = Number((u as any)?.available_cdnas ?? 10)
+    const current_available = Number((u as any)?.available_cdnas ?? 0)
     if (!Number.isFinite(current) || current < amt) {
       setCdnaTransferActionId(null)
       setCdnaTransferReqsError('Cannot approve: user does not have enough CDNAs.')
@@ -393,10 +489,187 @@ export default function App() {
     if (user?.email === req.email) {
       setCdnaPendingTransfer(null)
     }
+
+    // Generate filled form, upload to storage, notify cadet
+    // Send notification email regardless of PDF generation success
+    try {
+      const result = await buildCdnaFormBytes(req);
+      if (result) {
+        const { bytes, firstName, lastName } = result;
+        const filename = `${lastName.toUpperCase()}_${firstName.toUpperCase()}_CDNA_FORM10.pdf`;
+        const storagePath = `approved/${req.email}/${filename}`;
+        const { error: uploadError } = await supabase.storage
+          .from('Form10PDF')
+          .upload(storagePath, bytes, { contentType: 'application/pdf', upsert: true });
+        if (uploadError) console.warn('PDF upload failed:', uploadError.message);
+      }
+    } catch (pdfErr) {
+      console.warn('PDF generation/upload failed:', pdfErr);
+    }
+
+    // Always send the email notification
+    try {
+      const fullName = req.name?.trim() || '';
+      const { error: emailError } = await supabase.functions.invoke('send_cdna_form_email', {
+        body: {
+          toEmail: req.email,
+          cadetName: fullName,
+          dateOfUse: req.date_of_use ?? '',
+        }
+      });
+      if (emailError) console.warn('Email notification failed:', emailError.message);
+    } catch (emailErr) {
+      console.warn('Email invoke failed:', emailErr);
+    }
   }
-  
+
+  const loadSleepinRequests = async () => {
+    setSleepinReqsError('')
+    setSleepinReqsLoading(true)
+    const { data, error } = await supabase
+      .from('sleepin_requests')
+      .select('id, name, email, type, sleep_in_date, created_at')
+      .order('created_at', { ascending: true })
+    setSleepinReqsLoading(false)
+    if (error) {
+      setSleepinReqsError(`Failed to load sleep-in requests: ${error.message}`)
+      return
+    }
+    setSleepinReqs((data ?? []) as any[])
+  }
+
+  const dismissSleepinRequest = async (id: number) => {
+    setSleepinReqsError('')
+    setSleepinActionId(id)
+    const { error } = await supabase.from('sleepin_requests').delete().eq('id', id)
+    setSleepinActionId(null)
+    if (error) {
+      setSleepinReqsError(`Failed to dismiss request: ${error.message}`)
+      return
+    }
+    setSleepinReqs((prev) => prev.filter((r) => r.id !== id))
+  }
+
+  const submitSleepinRequest = async () => {
+    if (!user) return
+    setSleepinMsg('')
+
+    if (!sleepinType) {
+      setSleepinMsg('Please select Pass or CDNA.')
+      return
+    }
+    if (!sleepinDate) {
+      setSleepinMsg('Please select a date.')
+      return
+    }
+
+    setSleepinLoading(true)
+
+    const { data: currentUser, error: fetchErr } = await supabase
+      .from('users')
+      .select('passes, cdnas')
+      .eq('email', user.email)
+      .maybeSingle()
+
+    if (fetchErr) {
+      setSleepinLoading(false)
+      console.error(fetchErr)
+      setSleepinMsg(`Request failed: ${fetchErr.message}`)
+      return
+    }
+
+    const currentPasses = Number((currentUser as any)?.passes ?? 0)
+    const currentCdnas = Number((currentUser as any)?.cdnas ?? 0)
+
+    if (sleepinType === 'pass' && currentPasses < 1) {
+      setSleepinLoading(false)
+      setSleepinMsg('You do not have any passes left.')
+      return
+    }
+
+    if (sleepinType === 'cdna' && currentCdnas < 1) {
+      setSleepinLoading(false)
+      setSleepinMsg('You do not have any CDNAs left.')
+      return
+    }
+
+    if (sleepinType === 'pass') {
+      const { error: updateErr } = await supabase
+        .from('users')
+        .update({ passes: currentPasses - 1 })
+        .eq('email', user.email)
+
+      if (updateErr) {
+        setSleepinLoading(false)
+        console.error(updateErr)
+        setSleepinMsg(`Request failed: ${updateErr.message}`)
+        return
+      }
+    } else {
+      const { error: updateErr } = await supabase
+        .from('users')
+        .update({ cdnas: currentCdnas - 1 })
+        .eq('email', user.email)
+
+      if (updateErr) {
+        setSleepinLoading(false)
+        console.error(updateErr)
+        setSleepinMsg(`Request failed: ${updateErr.message}`)
+        return
+      }
+    }
+
+    const { error: insertErr } = await supabase.from('sleepin_requests').insert({
+      email: user.email,
+      name: user.name,
+      type: sleepinType,
+      sleep_in_date: sleepinDate,
+    })
+
+    if (insertErr) {
+      console.error(insertErr)
+      setSleepinMsg(`Request failed: ${insertErr.message}`)
+
+      if (sleepinType === 'pass') {
+        const { error: rollbackErr } = await supabase
+          .from('users')
+          .update({ passes: currentPasses })
+          .eq('email', user.email)
+
+        if (rollbackErr) {
+          console.error('Rollback failed:', rollbackErr)
+        }
+      } else {
+        const { error: rollbackErr } = await supabase
+          .from('users')
+          .update({ cdnas: currentCdnas })
+          .eq('email', user.email)
+
+        if (rollbackErr) {
+          console.error('Rollback failed:', rollbackErr)
+        }
+      }
+
+      setSleepinLoading(false)
+      return
+    }
+
+    setUser((prev) => {
+      if (!prev) return prev
+      if (sleepinType === 'pass') {
+        return { ...prev, passes: Math.max(0, (prev.passes ?? 0) - 1) }
+      }
+      return { ...prev, cdnas: Math.max(0, (prev.cdnas ?? 0) - 1) }
+    })
+
+    setSleepinLoading(false)
+
+    setSleepinMsg('Sleep in request submitted.')
+    setSleepinType('')
+    setSleepinDate('')
+  }
+
   const loadCdnaIncentiveRequests = async () => {
-    setCdnaIncentiveReqsError('')
     setCdnaIncentiveReqsLoading(true)
 
     const { data, error } = await supabase
@@ -510,7 +783,7 @@ export default function App() {
   const loadMyPendingCdnaTransfer = async (userEmail: string) => {
     const { data, error } = await supabase
       .from('cdna_transfer_requests')
-      .select('id, name, email, amount, created_at')
+      .select('id, name, email, amount, created_at, date_of_use')
       .eq('email', userEmail)
       .order('created_at', { ascending: false })
       .limit(1)
@@ -523,6 +796,35 @@ export default function App() {
 
     const row = (data ?? [])[0] as PassTransferRequestRow | undefined
     setCdnaPendingTransfer(row ?? null)
+  }
+
+  const loadApprovedCdnaForm = async (userEmail: string) => {
+    const { data } = await supabase.storage
+      .from('Form10PDF')
+      .list(`approved/${userEmail}`, { limit: 1, sortBy: { column: 'created_at', order: 'desc' } });
+    const file = (data ?? [])[0];
+    if (file) {
+      setApprovedCdnaFormPath(`approved/${userEmail}/${file.name}`);
+    } else {
+      setApprovedCdnaFormPath(null);
+    }
+  }
+
+  const confirmCdnaDownloaded = async () => {
+    if (!approvedCdnaFormPath) return
+    setConfirmingCdnaDownload(true)
+    const { error } = await supabase.storage
+      .from('Form10PDF')
+      .remove([approvedCdnaFormPath])
+
+    setConfirmingCdnaDownload(false)
+
+    if (error) {
+      alert(`Failed to confirm download: ${error.message}`)
+      return
+    }
+
+    setApprovedCdnaFormPath(null)
   }
 
 
@@ -545,10 +847,16 @@ export default function App() {
       return
     }
 
+    if (!cdnaTransferDate) {
+      setCdnaTransferLoading(false)
+      return
+    }
+
     const { error } = await supabase.from('cdna_transfer_requests').insert({
       email: user.email,
       name: user.name,
       amount: amt,
+      date_of_use: cdnaTransferDate,
     })
 
     setCdnaTransferLoading(false)
@@ -561,6 +869,7 @@ export default function App() {
     if (user?.email) void loadMyPendingCdnaTransfer(user.email)
     setShowCdnaTransferUI(false)
     setCdnaTransferAmount(1)
+    setCdnaTransferDate('')
   }
 
   const submitCdnaIncentiveRequest = async () => {
@@ -762,7 +1071,6 @@ export default function App() {
   const ppOnlyTabs: AdminTab[] = [
   'probationStatus',
   'passTransferRequests',
-  'cdnaTransferRequests',
   'passCount',
   'cdnaCount',
   'bulkAwards',
@@ -841,7 +1149,7 @@ export default function App() {
 
       const { data, error } = await supabase
         .from('users')
-        .select('name, email, passes, cdnas, available_cdnas, is_admin, on_probation, password_hash, password_salt, is_permanent_party')
+        .select('name, email, passes, cdnas, available_cdnas, upper_two, is_admin, on_probation, password_hash, password_salt, is_permanent_party')
         .eq('email', normalizedEmail)
         .maybeSingle()
 
@@ -1219,10 +1527,19 @@ setUsers(rows)
   }, [view, adminTab, isAdmin])
 
   useEffect(() => {
+    if (view === 'admin' && adminTab === 'sleepinRequests' && isAdmin) {
+      void loadSleepinRequests()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [view, adminTab, isAdmin])
+
+  useEffect(() => {
     if (user?.email) {
       void loadMyPendingCdnaTransfer(user.email)
+      void loadApprovedCdnaForm(user.email)
     } else {
       setCdnaPendingTransfer(null)
+      setApprovedCdnaFormPath(null)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.email])
@@ -1235,7 +1552,7 @@ setUsers(rows)
     const autoLogin = async () => {
       const { data, error } = await supabase
         .from('users')
-        .select('name, email, passes, cdnas, available_cdnas, is_admin, on_probation, password_hash, password_salt, is_permanent_party')
+        .select('name, email, passes, cdnas, available_cdnas, upper_two, is_admin, on_probation, password_hash, password_salt, is_permanent_party')
         .eq('email', savedEmail)
         .maybeSingle()
 
@@ -1522,6 +1839,49 @@ setUsers(rows)
 
               {adminMode === 'main' ? (
                 <>
+                  {/* NORMAL ADMIN BUTTONS (everyone who is admin sees these) */}
+
+                  <button
+                    className={`btn btnSilver adminTabBtn ${adminTab === 'incentivePassRequests' ? 'active' : ''}`}
+                    type="button"
+                    onClick={() => setAdminTab('incentivePassRequests')}
+                  >
+                    Incentive Pass Requests
+                  </button>
+
+                  <button
+                    className={`btn btnSilver adminTabBtn ${adminTab === 'cdnaIncentiveRequests' ? 'active' : ''}`}
+                    type="button"
+                    onClick={() => {
+                      setAdminTab('cdnaIncentiveRequests')
+                      loadCdnaIncentiveRequests()
+                    }}
+                  >
+                    Incentive CDNA Requests
+                  </button>
+
+                  <button
+                    className={`btn btnRedMetal adminTabBtn ${adminTab === 'cdnaTransferRequests' ? 'active' : ''}`}
+                    type="button"
+                    onClick={() => {
+                      setAdminTab('cdnaTransferRequests')
+                      loadCdnaTransferRequests()
+                    }}
+                  >
+                    Requests to Use CDNAs
+                  </button>
+
+                  <button
+                    className={`btn btnRedMetal adminTabBtn ${adminTab === 'sleepinRequests' ? 'active' : ''}`}
+                    type="button"
+                    onClick={() => {
+                      setAdminTab('sleepinRequests')
+                      void loadSleepinRequests()
+                    }}
+                  >
+                    Sleep In Requests
+                  </button>
+
                   {/* Permanent Party Portal entry button (shows, but disabled if not PP) */}
                   <button
                     className={`btn btnBlueMetal adminTabBtn ${isPermanentParty ? '' : 'disabledPP'}`}
@@ -1536,28 +1896,6 @@ setUsers(rows)
                     }}
                   >
                     Permanent Party Portal
-                  </button>
-
-                  {/* NORMAL ADMIN BUTTONS (everyone who is admin sees these) */}
-
-                  <button
-                    className={`btn btnRedMetal adminTabBtn ${adminTab === 'cdnaIncentiveRequests' ? 'active' : ''}`}
-                    type="button"
-                    onClick={() => {
-                      setAdminTab('cdnaIncentiveRequests')
-                      loadCdnaIncentiveRequests()
-                    }}
-                  >
-                    Incentive CDNA Requests
-                  </button>
-
-
-                  <button
-                    className={`btn btnSilver adminTabBtn ${adminTab === 'incentivePassRequests' ? 'active' : ''}`}
-                    type="button"
-                    onClick={() => setAdminTab('incentivePassRequests')}
-                  >
-                    Incentive Pass Requests
                   </button>
 
                   <button className="btn btnSmall" type="button" onClick={signOut}>
@@ -1580,17 +1918,6 @@ setUsers(rows)
                     }}
                   >
                     FN Pass Transfer Requests
-                  </button>
-
-                  <button
-                    className={`btn btnRedMetal adminTabBtn ${adminTab === 'cdnaTransferRequests' ? 'active' : ''}`}
-                    type="button"
-                    onClick={() => {
-                      setAdminTab('cdnaTransferRequests')
-                      loadCdnaTransferRequests()
-                    }}
-                  >
-                    Requests to Use CDNAs
                   </button>
 
                   <button
@@ -2085,6 +2412,15 @@ setUsers(rows)
                           <div className="adminRowLabel">Requested</div>
                           <div style={{ fontWeight: 800, color: 'rgba(201,162,74,0.95)' }}>{r.amount}</div>
 
+                          {r.date_of_use && (
+                            <>
+                              <div className="adminRowLabel">Date of Use</div>
+                              <div style={{ fontWeight: 600, color: 'rgba(255,255,255,0.8)' }}>
+                                {new Date(r.date_of_use).toLocaleDateString()}
+                              </div>
+                            </>
+                          )}
+
                           <button
                             className="btn btnGold btnSmall"
                             type="button"
@@ -2178,6 +2514,70 @@ setUsers(rows)
                 </div>
               </>
             
+            ) : adminTab === 'sleepinRequests' ? (
+              <>
+                <div className="adminTopRow">
+                  <div>
+                    <div className="adminTitle">Sleep In Requests</div>
+                    <div className="adminSub">Notifications from cadets requesting a sleep in.</div>
+                  </div>
+
+                  <button
+                    className="btn btnSmall"
+                    type="button"
+                    onClick={() => void loadSleepinRequests()}
+                    disabled={sleepinReqsLoading}
+                  >
+                    {sleepinReqsLoading ? 'Refreshing…' : 'Refresh'}
+                  </button>
+                </div>
+
+                {sleepinReqsError && (
+                  <div className="error" style={{ marginTop: 10 }}>
+                    {sleepinReqsError}
+                  </div>
+                )}
+
+                <div className="adminList">
+                  {sleepinReqsLoading ? (
+                    <div className="adminEmpty">Loading requests…</div>
+                  ) : sleepinReqs.length === 0 ? (
+                    <div className="adminEmpty">No sleep in requests.</div>
+                  ) : (
+                    sleepinReqs.map((r) => (
+                      <div className="adminRow" key={r.id}>
+                        <div className="adminRowLeft">
+                          <div className="adminRowName">{r.name ?? 'Unknown name'}</div>
+                          <div className="adminRowEmail">{r.email}</div>
+                          <div className="adminSub" style={{ marginTop: 6 }}>
+                            Type: {r.type === 'cdna' ? 'CDNA' : 'Pass'}
+                          </div>
+                            {r.sleep_in_date && (
+                              <div className="adminSub">
+                                Date: {new Date(r.sleep_in_date + 'T12:00:00').toLocaleDateString()}
+                              </div>
+                            )}
+                            <div className="adminSub">
+                              Requested: {new Date(r.created_at).toLocaleDateString()}
+                            </div>
+                        </div>
+
+                        <div className="adminRowRight">
+                          <button
+                            className="btn btnSmall"
+                            type="button"
+                            onClick={() => void dismissSleepinRequest(r.id)}
+                            disabled={sleepinActionId === r.id}
+                          >
+                            {sleepinActionId === r.id ? 'Working…' : 'Dismiss'}
+                          </button>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </>
+
             ) : adminTab === 'bulkAwards' ? (
 
               <>
@@ -2421,6 +2821,7 @@ setUsers(rows)
                   <button
                     className="btn btnGold"
                     type="button"
+                    disabled={!user.upper_two}
                     onClick={() => {
                       setArea('sleepins')
                     }}
@@ -2579,7 +2980,7 @@ setUsers(rows)
       }}
     >
       If you have any pictures you would like to submit to aid in verification
-      for an incentivized pass, please Teams it to Cadet NULL.
+      for an incentivized pass, please Teams it to C3C Gelder, Lanford, or Leahy.
     </div>
   </div>
 )}
@@ -2667,11 +3068,59 @@ setUsers(rows)
 
               <div className="statsRow">
                 <div className="label">Sleep Ins</div>
-                <div className="passes">0</div> {/* Placeholder, assuming no sleep ins count yet */}
               </div>
 
               <div className="actions">
-                {/* Placeholder buttons, can be customized later */}
+                <div style={{ width: '100%', marginBottom: 16 }}>
+                  <div style={{ fontSize: 15, color: 'rgba(255,255,255,0.9)', marginBottom: 12 }}>
+                    Use one{' '}
+                    <select
+                      className="adminPassInput"
+                      style={{ display: 'inline', width: 'auto', padding: '4px 8px', marginInline: 4 }}
+                      value={sleepinType}
+                      onChange={(e) => setSleepinType(e.target.value as 'pass' | 'cdna' | '')}
+                    >
+                      <option value="">-- select --</option>
+                      <option value="pass" disabled={(user.passes ?? 0) < 1}>
+                        Pass
+                      </option>
+                      <option value="cdna" disabled={(user.cdnas ?? 0) < 1}>
+                        CDNA
+                      </option>
+                    </select>
+                    {' '}to have a sleep in on{' '}
+                    <input
+                      className="adminPassInput"
+                      type="date"
+                      style={{ display: 'inline', width: 'auto', padding: '4px 8px', marginInline: 4 }}
+                      value={sleepinDate}
+                      onChange={(e) => setSleepinDate(e.target.value)}
+                    />
+                    .
+                  </div>
+
+                  <button
+                    className="btn btnGold"
+                    type="button"
+                    onClick={submitSleepinRequest}
+                    disabled={sleepinLoading}
+                  >
+                    {sleepinLoading ? 'Submitting…' : 'Submit Request'}
+                  </button>
+
+                  {sleepinMsg && (
+                    <div style={{ marginTop: 8, fontSize: 13, color: sleepinMsg.includes('submitted') ? 'rgba(100,220,100,0.9)' : 'rgba(255,100,100,0.9)' }}>
+                      {sleepinMsg}
+                    </div>
+                  )}
+
+                  {sleepinMsg.includes('submitted') && (
+                    <div style={{ marginTop: 8, fontSize: 13, color: 'rgba(255,255,255,0.82)' }}>
+                      Please message your Flight Commander on Teams to inform them of the date of your valid sleep in.
+                    </div>
+                  )}
+                </div>
+
                 <button
                   className="btn"
                   type="button"
@@ -2714,9 +3163,10 @@ setUsers(rows)
                 <button
                   className="btn btnGold"
                   type="button"
-                  disabled={!!cdnaPendingTransfer}
+                  disabled={!!cdnaPendingTransfer || user.available_cdnas <= 0}
                   onClick={() => {
                     setCdnaTransferAmount(1)
+                    setCdnaTransferDate('')
                     setShowCdnaTransferUI((prev) => {
                       const next = !prev
                       if (next) setShowCdnaIncentiveUI(false)
@@ -2826,7 +3276,7 @@ setUsers(rows)
                     }}
                   >
                     If you have any pictures you would like to submit to aid in verification for an
-                    incentivized CDNA, please Teams it to Cadet NULL.
+                    incentivized CDNA, please Teams it to C3C Gelder, Lanford, or Leahy.
                   </div>
                 </div>
               )}
@@ -2858,6 +3308,17 @@ setUsers(rows)
                       ))}
                     </select>
 
+                    <div style={{ color: 'rgba(255,255,255,0.72)', fontSize: 13 }}>Date of Use:</div>
+
+                    <input
+                      className="input"
+                      type="date"
+                      style={{ width: 160, padding: '10px 12px' }}
+                      value={cdnaTransferDate}
+                      onChange={(e) => setCdnaTransferDate(e.target.value)}
+                      min={new Date().toISOString().split('T')[0]}
+                    />
+
                     <button
                       className="btn btnGold btnSmall"
                       type="button"
@@ -2870,7 +3331,10 @@ setUsers(rows)
                     <button
                       className="btn btnSmall"
                       type="button"
-                      onClick={() => setShowCdnaTransferUI(false)}
+                      onClick={() => {
+                        setShowCdnaTransferUI(false)
+                        setCdnaTransferDate('')
+                      }}
                       disabled={cdnaTransferLoading}
                     >
                       Cancel
@@ -2885,14 +3349,53 @@ setUsers(rows)
                       color: 'rgba(255,255,255,0.6)',
                     }}
                   >
-                    *MUST BE SUBMITTED BY 1500* CDNA transfer requests are reviewed by permanent party daily. If your CDNA is not gettign approved, then please reach directly to permanent party.
+                    *MUST BE SUBMITTED BY 1500* CDNA transfer requests are reviewed daily. If your CDNA is not getting approved, then please reach out directly to C3C Gelder, Lanford, or Leahy.
                   </div>
                 </div>
               )}
 
               {cdnaPendingTransfer && (
                 <div className="loginSub" style={{ marginTop: 10 }}>
-                  CDNA transfer request pending for <b>{cdnaPendingTransfer.amount}</b> CDNAs.
+                  CDNA transfer request pending for <b>{cdnaPendingTransfer.amount}</b> CDNAs
+                  {cdnaPendingTransfer.date_of_use && (
+                    <> on <b>{new Date(cdnaPendingTransfer.date_of_use).toLocaleDateString()}</b></>
+                  )}.
+                </div>
+              )}
+
+              {approvedCdnaFormPath && (
+                <div style={{ marginTop: 14, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
+                  <div className="loginSub" style={{ color: 'rgba(100,220,100,0.9)' }}>
+                    Your CDNA request has been approved! Download your form, get it signed, and submit it.
+                  </div>
+                  <button
+                    className="btn btnGold"
+                    type="button"
+                    onClick={async () => {
+                      const { data, error } = await supabase.storage
+                        .from('Form10PDF')
+                        .download(approvedCdnaFormPath);
+                      if (error || !data) { alert('Failed to download form.'); return; }
+                      const url = window.URL.createObjectURL(data);
+                      const a = document.createElement('a');
+                      a.href = url;
+                      a.download = approvedCdnaFormPath.split('/').pop() ?? 'CDNA_FORM10.pdf';
+                      document.body.appendChild(a);
+                      a.click();
+                      window.URL.revokeObjectURL(url);
+                      document.body.removeChild(a);
+                    }}
+                  >
+                    Download CDNA Form
+                  </button>
+                  <button
+                    className="btn btnSmall"
+                    type="button"
+                    onClick={confirmCdnaDownloaded}
+                    disabled={confirmingCdnaDownload}
+                  >
+                    {confirmingCdnaDownload ? 'Confirming…' : 'I Downloaded My CDNA Form'}
+                  </button>
                 </div>
               )}
             </>

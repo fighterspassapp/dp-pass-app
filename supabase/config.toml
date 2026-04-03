@@ -405,6 +405,12 @@ entrypoint = "./functions/weekly_pass_transfer_digest/index.ts"
 # For example, if you want to serve static HTML pages in your function:
 # static_files = [ "./functions/weekly_pass_transfer_digest/*.html" ]
 
+[functions.daily_cdna_transfer_digest]
+enabled = true
+verify_jwt = false
+import_map = "./functions/daily_cdna_transfer_digest/deno.json"
+entrypoint = "./functions/daily_cdna_transfer_digest/index.ts"
+
 [functions.bulk_award]
 enabled = true
 verify_jwt = true
@@ -415,3 +421,9 @@ entrypoint = "./functions/bulk_award/index.ts"
 # Specifies static files to be bundled with the function. Supports glob patterns.
 # For example, if you want to serve static HTML pages in your function:
 # static_files = [ "./functions/bulk_award/*.html" ]
+
+[functions.send_cdna_form_email]
+enabled = true
+verify_jwt = false
+import_map = "./functions/send_cdna_form_email/deno.json"
+entrypoint = "./functions/send_cdna_form_email/index.ts"
