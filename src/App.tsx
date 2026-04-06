@@ -162,7 +162,6 @@ export default function App() {
 
   // ===== CDNA request UI state =====
   const [showCdnaTransferUI, setShowCdnaTransferUI] = useState(false)
-  const [cdnaTransferAmount, setCdnaTransferAmount] = useState(1)
   const [cdnaTransferDate, setCdnaTransferDate] = useState('')
   const [cdnaTransferLoading, setCdnaTransferLoading] = useState(false)
   const [cdnaPendingTransfer, setCdnaPendingTransfer] = useState<PassTransferRequestRow | null>(null)
@@ -814,12 +813,7 @@ export default function App() {
     setCdnaTransferLoading(true)
 
     const max = Number(user.cdnas ?? 0)
-    const amt = Number(cdnaTransferAmount)
-
-    if (!Number.isInteger(amt) || amt < 1) {
-      setCdnaTransferLoading(false)
-      return
-    }
+    const amt = 1
 
     if (amt > max) {
       setCdnaTransferLoading(false)
@@ -847,7 +841,6 @@ export default function App() {
 
     if (user?.email) void loadMyPendingCdnaTransfer(user.email)
     setShowCdnaTransferUI(false)
-    setCdnaTransferAmount(1)
     setCdnaTransferDate('')
   }
 
@@ -3095,7 +3088,7 @@ setUsers(rows)
 
                   {sleepinMsg.includes('submitted') && (
                     <div style={{ marginTop: 8, fontSize: 13, color: 'rgba(255,255,255,0.82)' }}>
-                      Please message your Flight Commander on Teams to inform them of the date of your valid sleep in.
+                      Please put in a FalconNet Excusal and message your Flight Commander on Teams to inform them of the date of your valid sleep in.
                     </div>
                   )}
                 </div>
@@ -3144,7 +3137,6 @@ setUsers(rows)
                   type="button"
                   disabled={!!cdnaPendingTransfer || user.available_cdnas <= 0}
                   onClick={() => {
-                    setCdnaTransferAmount(1)
                     setCdnaTransferDate('')
                     setShowCdnaTransferUI((prev) => {
                       const next = !prev
@@ -3272,20 +3264,9 @@ setUsers(rows)
                   }}
                 >
                   <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-                    <div style={{ color: 'rgba(255,255,255,0.72)', fontSize: 13 }}>Amount:</div>
-
-                    <select
-                      className="input"
-                      style={{ width: 160, padding: '10px 12px' }}
-                      value={cdnaTransferAmount}
-                      onChange={(e) => setCdnaTransferAmount(Number(e.target.value))}
-                    >
-                      {Array.from({ length: Math.max(0, user.cdnas) }, (_, i) => i + 1).map((n) => (
-                        <option key={n} value={n}>
-                          {n}
-                        </option>
-                      ))}
-                    </select>
+                    <div style={{ color: 'rgba(255,255,255,0.72)', fontSize: 13 }}>
+                      Amount: <b>1 CDNA</b>
+                    </div>
 
                     <div style={{ color: 'rgba(255,255,255,0.72)', fontSize: 13 }}>Date of Use:</div>
 
